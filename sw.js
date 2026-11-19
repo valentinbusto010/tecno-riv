@@ -1,12 +1,12 @@
-// Service worker de la app: guarda una copia de todo para poder abrirla sin internet.
+// Service worker de la app: guarda una copia de la app para poder abrirla sin internet.
 // Siempre intenta primero la red (para tener lo último) y si no hay conexión usa la copia.
-const VERSION = 'tecnoriv-20261118-210237'; // armar-app.ps1 lo reemplaza por la fecha de cada publicación
+// Los datos en vivo vienen de Supabase (otro dominio): no pasan por acá.
+const VERSION = 'tecnoriv-20261118-212800'; // armar-app.ps1 lo reemplaza por la fecha de cada publicación
 const ARCHIVOS = [
   './', './index.html', './manifest.webmanifest',
   './src/app.js', './src/calculos.js', './src/cifrado.js', './src/config.js', './src/datos.js',
-  './src/escena.js', './src/estilos.css', './src/formato.js', './src/tarjetas.js',
+  './src/escena.js', './src/estilos.css', './src/formato.js', './src/tarjetas.js', './src/vivo.js',
   './vendor/three.module.min.js', './vendor/fuentes/archivo-black-latin.woff2', './vendor/fuentes/montserrat-latin.woff2',
-  './data/datos.cifrados.json',
   './iconos/icono-32.png', './iconos/icono-192.png', './iconos/icono-512.png', './iconos/apple-touch-icon.png',
 ];
 

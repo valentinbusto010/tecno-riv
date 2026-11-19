@@ -1,6 +1,7 @@
-// Capa de datos: lee la copia de las tablas y revisa que esté completa.
-// En tu PC lee los archivos de /data en claro. En la versión publicada solo existe
-// data/datos.cifrados.json, y hace falta la clave para abrirlo.
+// Capa de datos: consigue las tablas y revisa que estén completas.
+// En tu PC lee la copia de /data. En la versión publicada no hay archivos de datos:
+// los trae en vivo de Supabase con tu sesión (vivo.js). Queda el camino de la copia cifrada
+// (data/datos.cifrados.json) por si alguna vez se publica así.
 export const ARCHIVOS = ['fuente', 'productos', 'pedidos', 'clientes', 'mensajes_dia', 'piezas', 'gastos'];
 
 export async function leerDatosPlanos(base = './data/') {
@@ -14,19 +15,32 @@ export async function leerDatosPlanos(base = './data/') {
   return Object.fromEntries(entradas);
 }
 
-export async function cargarDatos(base = './data/', { pedirClave } = {}) {
-  const prueba = await fetch(`${base}fuente.json`, { cache: 'no-store' }).catch(() => null);
-  if (prueba && prueba.ok) {
-    const datos = await leerDatosPlanos(base);
-    return { datos, avisos: revisarDatos(datos), cifrado: false };
+function completos(datos) {
+  for (const k of ARCHIVOS) if (!(k in datos)) throw new Error(`A los datos les falta ${k}.`);
+  return datos;
+}
+
+export async function cargarDatos(base = './data/', { pedirClave, conectarVivo } = {}) {
+  // ?vivo en la dirección fuerza los datos en vivo aunque haya copia local (para probar en la PC).
+  const forzarVivo = new URLSearchParams(location.search).has('vivo');
+  if (!forzarVivo) {
+    const prueba = await fetch(`${base}fuente.json`, { cache: 'no-store' }).catch(() => null);
+    if (prueba && prueba.ok) {
+      const datos = await leerDatosPlanos(base);
+      return { datos, avisos: revisarDatos(datos), modo: 'copia' };
+    }
+  }
+  if (conectarVivo) {
+    const { datos, modo, guardado } = await conectarVivo();
+    completos(datos);
+    return { datos, avisos: revisarDatos(datos), modo, guardado };
   }
   const r = await fetch(`${base}datos.cifrados.json`, { cache: 'no-store' }).catch(() => null);
   if (!r || !r.ok) throw new Error('No se encontraron los datos de la maqueta.');
   const paquete = await r.json();
   if (!pedirClave) throw new Error('Los datos están cifrados y hace falta la clave.');
-  const datos = await pedirClave(paquete);
-  for (const k of ARCHIVOS) if (!(k in datos)) throw new Error(`Al paquete cifrado le falta ${k}.`);
-  return { datos, avisos: revisarDatos(datos), cifrado: true, creado: paquete.creado };
+  const datos = completos(await pedirClave(paquete));
+  return { datos, avisos: revisarDatos(datos), modo: 'cifrado', creado: paquete.creado };
 }
 
 export function revisarDatos(d) {

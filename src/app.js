@@ -1,7 +1,7 @@
 // Une las tres capas: datos → cálculos → escena y tarjetas.
 import { cargarDatos } from './datos.js';
 import { calcularMetricas } from './calculos.js';
-import { PERIODOS, PERIODO_INICIAL } from './config.js';
+import { PERIODOS, PERIODO_INICIAL, REFRESCO_MS } from './config.js';
 import { OBJETOS, ETIQUETA_ESTADO, FILTROS_STOCK, construirTarjeta, resumenObjeto, etiquetaPeriodo, etiquetaBotonMes, kpis } from './tarjetas.js';
 import { fechaHora, fecha } from './formato.js';
 
@@ -32,6 +32,8 @@ const estado = {
   datos: null, periodo: PERIODO_INICIAL, m: null, ref: null,
   escena: null, abierta: null, foco: null, movimiento: true, noche: false,
   tour: null, filtroStock: null, tab: 'local',
+  // modo: 'copia' (archivos locales), 'cifrado', 'vivo' o 'sin_conexion' (última copia guardada)
+  modo: 'copia', guardado: null, vivo: null, ultimaCarga: 0, actualizando: false,
 };
 
 const CLAVE_GUARDADA = 'tr-clave-v1';
@@ -78,34 +80,161 @@ async function pedirClave(paquete) {
 }
 
 function registrarApp() {
-  // Solo en la versión publicada (datos cifrados): deja la app lista para instalar y usar sin internet.
+  // Solo en la versión publicada: deja la app lista para instalar y usar sin internet.
   if (!('serviceWorker' in navigator)) return;
   navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('No se pudo preparar el uso sin internet:', e));
+}
+
+// Datos en vivo: usa la sesión guardada o pide email y contraseña. Sin internet, muestra la última copia.
+async function conectarVivo() {
+  const vivo = await import('./vivo.js');
+  estado.vivo = vivo;
+  if (vivo.haySesionGuardada()) {
+    try {
+      return { datos: await vivo.traerDatos(), modo: 'vivo' };
+    } catch (e) {
+      if (e instanceof vivo.SinConexion) {
+        const u = vivo.ultimosGuardados();
+        if (u) return { datos: u.datos, modo: 'sin_conexion', guardado: u.guardado };
+        throw new Error('No hay conexión y en este dispositivo todavía no hay datos guardados.');
+      }
+      if (!(e instanceof vivo.SesionInvalida)) throw e;
+      return pedirIngreso(vivo, e.message);
+    }
+  }
+  return pedirIngreso(vivo, '');
+}
+
+function pedirIngreso(vivo, motivo) {
+  $('#arranque').hidden = true;
+  const panel = $('#acceso'), form = $('#acceso-form'), email = $('#acceso-email'), contrasena = $('#acceso-contrasena');
+  const error = $('#acceso-error'), boton = $('#acceso-entrar');
+  panel.hidden = false;
+  document.body.classList.add('bloqueada');
+  email.value = vivo.emailGuardado();
+  if (motivo) { error.textContent = motivo; error.hidden = false; }
+  (email.value ? contrasena : email).focus();
+  for (const c of [email, contrasena]) c.addEventListener('input', () => { error.hidden = true; });
+  return new Promise((resolver) => {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!email.value.trim() || !contrasena.value) { error.textContent = 'Escribí tu email y tu contraseña.'; error.hidden = false; return; }
+      boton.disabled = true; boton.textContent = 'Entrando…';
+      try {
+        await vivo.entrar(email.value.trim(), contrasena.value, $('#acceso-recordar').checked);
+        const datos = await vivo.traerDatos();
+        contrasena.value = '';
+        panel.hidden = true;
+        document.body.classList.remove('bloqueada');
+        resolver({ datos, modo: 'vivo' });
+      } catch (err) {
+        error.textContent = err instanceof vivo.SinConexion ? 'No hay conexión. Conectate a internet para entrar la primera vez.' : err.message;
+        error.hidden = false;
+        boton.disabled = false; boton.textContent = 'Entrar';
+      }
+    });
+  });
+}
+
+// Vuelve a traer los datos en vivo y redibuja todo sin perder lo que estás mirando.
+async function actualizar({ silencioso = false } = {}) {
+  if (!estado.vivo || estado.actualizando) return;
+  estado.actualizando = true;
+  const boton = $('#btn-actualizar');
+  boton.disabled = true; boton.textContent = 'Actualizando…';
+  try {
+    const datos = await estado.vivo.traerDatos();
+    estado.modo = 'vivo'; estado.guardado = null;
+    aplicarDatos(datos);
+  } catch (e) {
+    if (e instanceof estado.vivo.SesionInvalida) { location.reload(); return; }
+    if (!silencioso) mostrarAviso(e instanceof estado.vivo.SinConexion ? 'Sin conexión: se siguen mostrando los últimos datos.' : e.message);
+    if (e instanceof estado.vivo.SinConexion && estado.modo === 'vivo') { estado.modo = 'sin_conexion'; estado.guardado = new Date(estado.ultimaCarga).toISOString(); pintarModo(); }
+  } finally {
+    estado.actualizando = false;
+    boton.disabled = false; boton.textContent = 'Actualizar';
+  }
+}
+
+function aplicarDatos(datos) {
+  estado.datos = datos;
+  estado.ultimaCarga = Date.now();
+  estado.ref = { facturacionMax: calcularMetricas(estado.datos, 'todo').caja.facturacion };
+  pintarMeta();
+  pintarModo();
+  aplicarPeriodo(estado.periodo);
+  armarListaProductos();
+}
+
+function mostrarAviso(texto) {
+  const a = $('#avisos');
+  a.replaceChildren(document.createTextNode(texto));
+  a.hidden = false;
+  clearTimeout(mostrarAviso.t);
+  mostrarAviso.t = setTimeout(() => { a.hidden = true; }, 6000);
+}
+
+// Sello de arriba: dice siempre de dónde salen los números.
+function pintarModo() {
+  const sello = $('#sello-texto'), dt = $('#meta-carga-titulo');
+  const f = estado.datos.fuente;
+  if (estado.modo === 'vivo') { sello.textContent = 'En vivo'; dt.textContent = 'Actualizado'; }
+  else if (estado.modo === 'sin_conexion') { sello.textContent = 'Sin conexión · últimos datos guardados'; dt.textContent = 'Datos del'; }
+  else { sello.textContent = 'Copia fija · no es conexión en vivo'; dt.textContent = 'Datos cargados'; }
+  $('#meta-carga').textContent = `${fechaHora(f.cargado_at)} (hora de Argentina)`;
+  $('.meta .sello').dataset.modo = estado.modo;
+}
+
+function textoOrigen() {
+  const f = estado.datos.fuente;
+  if (estado.modo === 'vivo') return `En vivo, actualizado el ${fechaHora(f.cargado_at)}`;
+  if (estado.modo === 'sin_conexion') return `Sin conexión: datos del ${fechaHora(f.cargado_at)}`;
+  return `Copia del ${fecha(f.cargado_at)}, no es conexión en vivo`;
 }
 
 async function iniciar() {
   let carga;
   try {
-    carga = await cargarDatos('./data/', { pedirClave });
+    carga = await cargarDatos('./data/', { pedirClave, conectarVivo });
   } catch (e) {
     $('#candado').hidden = true;
+    $('#acceso').hidden = true;
+    document.body.classList.remove('bloqueada');
     $('#arranque').hidden = false;
     $('#arranque').textContent = `No se pudieron leer los datos: ${e.message}`;
     $('#arranque').classList.add('error');
     return;
   }
   $('#arranque').hidden = true;
-  if (carga.cifrado) {
+  estado.modo = carga.modo;
+  estado.guardado = carga.guardado || null;
+  if (carga.modo !== 'copia') {
     registrarApp();
-    $('#bloque-clave').hidden = false;
     $('#enlace-pruebas').hidden = true;
+  }
+  if (carga.modo === 'cifrado') {
+    $('#bloque-clave').hidden = false;
     $('#olvidar-clave').addEventListener('click', () => {
       try { localStorage.removeItem(CLAVE_GUARDADA); } catch { /* nada guardado */ }
       $('#olvidar-clave').textContent = 'Listo: la próxima vez te va a pedir la clave';
       $('#olvidar-clave').disabled = true;
     });
   }
+  if (carga.modo === 'vivo' || carga.modo === 'sin_conexion') {
+    $('#btn-actualizar').hidden = false;
+    $('#btn-actualizar').addEventListener('click', () => actualizar());
+    $('#bloque-sesion').hidden = false;
+    $('#sesion-email').textContent = estado.vivo.emailGuardado() || 'tu usuario';
+    $('#cerrar-sesion').addEventListener('click', async () => { await estado.vivo.salir(); location.reload(); });
+    // Datos frescos al volver a la app y cada tanto mientras está a la vista.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && Date.now() - estado.ultimaCarga > 60 * 1000) actualizar({ silencioso: true });
+    });
+    setInterval(() => { if (document.visibilityState === 'visible') actualizar({ silencioso: true }); }, REFRESCO_MS);
+    window.addEventListener('online', () => actualizar({ silencioso: true }));
+  }
   estado.datos = carga.datos;
+  estado.ultimaCarga = carga.modo === 'sin_conexion' && carga.guardado ? Date.parse(carga.guardado) : Date.now();
   if (carga.avisos.length) {
     const a = $('#avisos');
     a.hidden = false;
@@ -113,6 +242,7 @@ async function iniciar() {
   }
 
   pintarMeta();
+  pintarModo();
   armarPeriodos();
   armarRotulos();
   armarListaObjetos();
@@ -134,8 +264,8 @@ function pintarMeta() {
   const f = estado.datos.fuente;
   $('#meta-fuente').textContent = f.bases.map((b) => b.nombre).join(' + ');
   $('#meta-moneda').textContent = MONEDAS[f.moneda] || f.moneda;
-  $('#meta-carga').textContent = `${fechaHora(f.cargado_at)} (hora de Argentina)`;
   const ul = $('#omitido');
+  ul.replaceChildren();
   for (const b of f.bases) for (const [archivo, desc] of Object.entries(b.archivos)) ul.append(el('li', { text: `${b.nombre} → data/${archivo}: ${desc}.` }));
   for (const o of f.omitido) ul.append(el('li', { text: `No incluido: ${o}` }));
 }
@@ -387,7 +517,7 @@ function pintarTarjeta(id, productoId) {
   $('#tarjeta-cuerpo').replaceChildren(...cuerpo);
 
   const f = estado.datos.fuente;
-  $('#tarjeta-pie').textContent = `Fuente: ${t.fuente} · Período: ${t.periodo} · Moneda: ${MONEDAS[f.moneda] || f.moneda} · Copia del ${fecha(f.cargado_at)}, no es conexión en vivo`;
+  $('#tarjeta-pie').textContent = `Fuente: ${t.fuente} · Período: ${t.periodo} · Moneda: ${MONEDAS[f.moneda] || f.moneda} · ${textoOrigen()}`;
 }
 
 // Gráficos chicos dentro de las tarjetas

@@ -31,6 +31,21 @@
     <button type="submit" class="btn primario" id="candado-abrir">Abrir</button>
   </form>
 </section>
+<section class="candado" id="acceso" aria-labelledby="acceso-titulo" hidden>
+  <form class="candado-caja" id="acceso-form" novalidate>
+    <img src="./iconos/icono-192.png" alt="" width="72" height="72">
+    <p class="eyebrow">Datos en vivo</p>
+    <h1 class="logo" id="acceso-titulo">Tecno <span>Riv</span></h1>
+    <p class="sub">Entrá con el mismo usuario que usás en el panel del bot. La app lee los números del momento cada vez que la abrís.</p>
+    <label for="acceso-email">Email</label>
+    <input id="acceso-email" name="email" type="email" inputmode="email" autocomplete="username" required>
+    <label for="acceso-contrasena">Contraseña</label>
+    <input id="acceso-contrasena" name="contrasena" type="password" autocomplete="current-password" required>
+    <label class="tilde"><input id="acceso-recordar" type="checkbox" checked> Mantener la sesión en este dispositivo</label>
+    <p class="error" id="acceso-error" role="alert" hidden></p>
+    <button type="submit" class="btn primario" id="acceso-entrar">Entrar</button>
+  </form>
+</section>
 <div class="wrap">
   <header class="top">
     <div class="marca">
@@ -40,13 +55,16 @@
     <div class="seg" role="group" aria-label="Período" id="periodos"></div>
   </header>
 
-  <dl class="meta">
-    <div class="sello"><dt class="oculto">Tipo de datos</dt><dd>Copia fija · no es conexión en vivo</dd></div>
-    <div><dt>Período</dt><dd id="meta-periodo">—</dd></div>
-    <div><dt>Moneda</dt><dd id="meta-moneda">—</dd></div>
-    <div><dt>Datos cargados</dt><dd id="meta-carga">—</dd></div>
-    <div><dt>Fuente</dt><dd id="meta-fuente">—</dd></div>
-  </dl>
+  <div class="meta-fila">
+    <dl class="meta">
+      <div class="sello"><dt class="oculto">Tipo de datos</dt><dd id="sello-texto">Copia fija · no es conexión en vivo</dd></div>
+      <div><dt>Período</dt><dd id="meta-periodo">—</dd></div>
+      <div><dt>Moneda</dt><dd id="meta-moneda">—</dd></div>
+      <div><dt id="meta-carga-titulo">Datos cargados</dt><dd id="meta-carga">—</dd></div>
+      <div><dt>Fuente</dt><dd id="meta-fuente">—</dd></div>
+    </dl>
+    <button type="button" class="btn chico" id="btn-actualizar" hidden>Actualizar</button>
+  </div>
   <p class="aviso" id="arranque">Cargando la maqueta… Si este mensaje no desaparece, abrila desde su dirección web, o en tu PC con <code>serve.ps1</code> (ver LEEME.md): con doble clic sobre el archivo el navegador no la deja cargar.</p>
   <div class="aviso" id="avisos" hidden></div>
 
@@ -101,6 +119,11 @@
           <li><kbd>Esc</kbd> cierra la tarjeta.</li>
         </ul>
         <p class="sub" id="enlace-pruebas">Las pruebas de los cálculos están en <a href="./pruebas.html">pruebas.html</a>.</p>
+      </div>
+      <div class="card" id="bloque-sesion" hidden>
+        <h2>Sesión</h2>
+        <p class="sub">Los datos se leen en vivo de la base del bot con <strong id="sesion-email">tu usuario</strong>. Se actualizan al abrir la app, al volver a ella y cada 5 minutos mientras la mirás.</p>
+        <button type="button" class="btn" id="cerrar-sesion">Cerrar sesión en este dispositivo</button>
       </div>
       <div class="card" id="bloque-clave" hidden>
         <h2>Clave</h2>

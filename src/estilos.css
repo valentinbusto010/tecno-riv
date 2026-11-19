@@ -69,6 +69,18 @@ a { color: var(--acento); }
 .meta dt { color: var(--muted); font-weight: 600; }
 .meta dd { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
 .meta .sello dd { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--apagado); background: var(--apagado-soft); padding: 2px 9px; border-radius: 99px; }
+.meta .sello[data-modo="vivo"] dd { color: var(--entra); background: var(--entra-soft); display: inline-flex; align-items: center; gap: 6px; }
+.meta .sello[data-modo="vivo"] dd::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--entra); }
+.meta .sello[data-modo="sin_conexion"] dd { color: var(--parcial); background: var(--parcial-soft); }
+.meta-fila { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 16px; margin-bottom: 12px; }
+.meta-fila .meta { margin: 0; flex: 1; min-width: 0; }
+.candado-caja input[type="email"] {
+  width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-size: 16px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .meta .sello[data-modo="vivo"] dd::before { animation: latido 2s ease-in-out infinite; }
+  @keyframes latido { 50% { opacity: 0.35; } }
+}
 .aviso { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--parcial-soft); color: var(--parcial); font-size: 14px; }
 .aviso.error { background: var(--sale-soft); color: var(--sale); }
 

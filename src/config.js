@@ -18,3 +18,14 @@ export const PERIODOS = [
 ];
 
 export const PERIODO_INICIAL = 'todo';
+
+// Datos en vivo: base del bot en Supabase. La clave publicable está hecha para ir en páginas públicas;
+// la seguridad la dan las reglas de la base y la función maqueta_datos, que solo responde al usuario dueño.
+export const SUPABASE = {
+  url: 'https://wecwgwhlczspysldlwbb.supabase.co',
+  clave: 'sb_publishable_Ecs3BDpzolG30blkg1fpmw_mWodt_KB',
+  funcion: 'maqueta_datos',
+};
+
+// Cada cuánto se vuelven a traer los datos mientras la app está abierta y a la vista.
+export const REFRESCO_MS = 5 * 60 * 1000;
