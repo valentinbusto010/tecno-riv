@@ -1,7 +1,7 @@
 // Service worker de la app: guarda una copia de la app para poder abrirla sin internet.
 // Siempre intenta primero la red (para tener lo último) y si no hay conexión usa la copia.
 // Los datos en vivo vienen de Supabase (otro dominio): no pasan por acá.
-const VERSION = 'tecnoriv-20261118-212800'; // armar-app.ps1 lo reemplaza por la fecha de cada publicación
+const VERSION = 'tecnoriv-20261118-213554'; // armar-app.ps1 lo reemplaza por la fecha de cada publicación
 const ARCHIVOS = [
   './', './index.html', './manifest.webmanifest',
   './src/app.js', './src/calculos.js', './src/cifrado.js', './src/config.js', './src/datos.js',
