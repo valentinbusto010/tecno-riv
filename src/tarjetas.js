@@ -8,6 +8,7 @@ export const OBJETOS = [
   { id: 'camioneta', titulo: 'Pedidos', estado: 'parcial' },
   { id: 'productos', titulo: 'Productos', estado: 'datos' },
   { id: 'ganancia', titulo: 'Ganancia', estado: 'datos' },
+  { id: 'meta', titulo: 'Meta del mes', estado: 'datos' },
   { id: 'clientes', titulo: 'Clientes', estado: 'datos' },
   { id: 'marketing', titulo: 'Marketing', estado: 'parcial' },
   { id: 'proveedores', titulo: 'Proveedores', estado: 'no_disponible' },
@@ -18,6 +19,7 @@ export const ETIQUETA_ESTADO = { datos: 'Con datos', parcial: 'Datos parciales',
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 
 export function etiquetaPeriodo(rango) {
+  if (rango.id === 'tiempo') return `Máquina del tiempo: acumulado hasta el ${fecha(rango.hasta)}`;
   if (rango.id === 'semana') return `Últimos 7 días (${fecha(rango.desde)} al ${fecha(rango.hasta)})`;
   if (rango.id === 'mes') {
     const mes = MESES[Number(rango.hasta.slice(5, 7)) - 1];
@@ -42,6 +44,7 @@ export function resumenObjeto(id, m) {
     case 'camioneta': return `${plural(m.pedidos.entregados, 'entregado', 'entregados')} · ${plural(m.pedidos.pendientes, 'pendiente', 'pendientes')}`;
     case 'productos': return plural(m.deposito.productosActivos, 'activo', 'activos');
     case 'ganancia': return `Neta ${pesos(m.ganancia.neta)}`;
+    case 'meta': return m.meta?.meta ? `${porcentaje(Math.min(m.meta.progreso, 9.99))} de ${pesos(m.meta.meta)}` : 'Cargá tu meta';
     case 'clientes': return plural(m.clientes.contactos, 'contacto', 'contactos');
     case 'marketing': return `Meta ${pesos(m.marketing.gastoPublicidad)}`;
     case 'proveedores': return 'No disponible';
@@ -226,6 +229,29 @@ export function construirTarjeta(id, m, { productoId } = {}) {
         notas: ['Los aportes de plata del dueño no se cuentan como ingreso ni como gasto.', `Gastos incluidos: ${listaIds(g.gastosIds)}.`],
         fuente: 'Pedidos de tecnoriv-bot y gastos de finanzas-valen',
         periodo,
+      };
+    }
+    case 'meta': {
+      const t = m.meta;
+      const mes = MESES[Number(t.mes.slice(5, 7)) - 1];
+      const filas = [fila(`Facturado en ${mes}`, pesos(t.facturado), `Del ${fecha(t.desde)} al ${fecha(t.hasta)}`)];
+      if (t.meta) {
+        filas.push(
+          fila('Meta', pesos(t.meta)),
+          fila('Avance', porcentaje(t.progreso), t.alcanzada ? '¡Meta cumplida!' : undefined),
+          fila('Falta', pesos(t.falta)),
+          fila('Días que quedan del mes', numero(t.diasRestantes)),
+          fila('Para llegar, vender por día', t.alcanzada ? '—' : pesos(t.porDiaNecesario), t.alcanzada ? undefined : 'Falta ÷ días que quedan'),
+        );
+      }
+      return {
+        id, titulo: def.titulo, estado: def.estado,
+        representa: 'El termómetro de neón de la pared se llena con lo que facturaste en el mes. La meta la elegís vos y queda guardada en este dispositivo.',
+        secciones: [{ filas }],
+        formMeta: { valor: t.meta, mes },
+        notas: t.meta ? [] : ['Cargá una meta de facturación para ver cuánto te falta y cuánto tenés que vender por día.'],
+        fuente: 'Pedidos de tecnoriv-bot y la meta que cargaste',
+        periodo: `${mes[0].toUpperCase() + mes.slice(1)} ${t.mes.slice(0, 4)}`,
       };
     }
     case 'clientes': {

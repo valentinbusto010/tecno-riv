@@ -83,13 +83,28 @@
           <button type="button" class="redondo" id="btn-centrar" aria-label="Ver todo el local" title="Ver todo el local"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
           <button type="button" class="redondo" id="btn-noche" aria-pressed="false" aria-label="Modo noche" title="Modo noche"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg></button>
           <button type="button" class="redondo" id="btn-movimiento" aria-pressed="false" aria-label="Pausar animaciones" title="Pausar animaciones"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5v14M15 5v14"/></svg></button>
+          <button type="button" class="redondo" id="btn-manejar" aria-pressed="false" aria-label="Manejar a tu personaje" title="Manejar a tu personaje"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="20" height="11" rx="5"/><path d="M7 10v5M4.5 12.5h5M15.5 11.5h.01M18 14h.01"/></svg></button>
+          <button type="button" class="redondo" id="btn-sonido" aria-pressed="false" aria-label="Sonido de ventas nuevas" title="Sonido de ventas nuevas"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9zM16 9.5a4 4 0 0 1 0 5M18.5 7a7.5 7.5 0 0 1 0 10"/></svg></button>
         </div>
+        <div class="joystick" id="joystick" hidden aria-hidden="true"><div class="joystick-perilla" id="joystick-perilla"></div></div>
+        <button type="button" class="abrir-cercana" id="abrir-cercana" hidden></button>
+        <p class="ayuda-manejo" id="ayuda-manejo" hidden>Flechas o WASD para caminar · Enter o E para abrir · Esc para salir</p>
         <button type="button" class="recorrido" id="btn-recorrido"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z"/></svg>Recorrer el local</button>
         <div class="sin-3d" id="sin-3d" hidden>
           <p><strong>Este navegador no puede mostrar la maqueta 3D.</strong></p>
           <p id="sin-3d-detalle">Los mismos datos están en la pestaña Lista.</p>
         </div>
         <p class="ayuda" id="ayuda">Tocá un objeto · Deslizá para girar</p>
+      </div>
+
+      <div class="tiempo" id="tiempo" hidden>
+        <button type="button" class="redondo" id="tiempo-play" aria-label="Reproducir los días" title="Reproducir los días"><svg class="ico-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z"/></svg><svg class="ico-pausa" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg></button>
+        <div class="tiempo-control">
+          <label class="tiempo-fecha" for="tiempo-dia" id="tiempo-fecha">—</label>
+          <input type="range" id="tiempo-dia" min="0" max="0" step="1" value="0">
+          <p class="tiempo-detalle" id="tiempo-detalle">—</p>
+          <p class="tiempo-nota">Ventas, caja y clientes se suman hasta el día elegido. El depósito muestra el stock de hoy: no hay historial de stock.</p>
+        </div>
       </div>
     </section>
 
@@ -117,6 +132,7 @@
           <li><kbd>+</kbd> <kbd>−</kbd> acercan y alejan.</li>
           <li><kbd>N</kbd> prende y apaga el modo noche.</li>
           <li><kbd>Esc</kbd> cierra la tarjeta.</li>
+          <li>Manejando a tu personaje: <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> o <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> para caminar, <kbd>Enter</kbd> o <kbd>E</kbd> abren la zona de al lado y <kbd>Esc</kbd> sale del modo.</li>
         </ul>
         <p class="sub" id="enlace-pruebas">Las pruebas de los cálculos están en <a href="./pruebas.html">pruebas.html</a>.</p>
       </div>
@@ -157,6 +173,8 @@
     <button type="button" class="btn primario" id="tour-siguiente">Siguiente →</button>
   </div>
 </aside>
+
+<div class="avisos-flotantes" id="avisos-flotantes" aria-live="polite"></div>
 
 <script type="module" src="./src/app.js"></script>
 </body>

@@ -25,7 +25,7 @@ const PERSONAS = [0x3b4458, 0x7a4fd6, 0xe06a4a, 0x138a55, 0x0a8fd6, 0xc98a2b, 0x
 const POS = {
   deposito: [-5.25, -4.4], proveedores: [-6.95, 1.9], productos: [5.0, -5.5],
   caja: [-0.6, -1.4], ganancia: [2.7, -1.3], clientes: [-4.0, 1.4],
-  marketing: [-6.95, -1.0], camioneta: [4.0, 6.4],
+  marketing: [-6.95, -1.0], camioneta: [4.0, 6.4], meta: [-6.95, 0.55],
 };
 const LOCAL = { x0: -7, x1: 7, z0: -6, z1: 4, alto: 3.6 };
 
@@ -153,15 +153,26 @@ class Animador {
   }
   paso(ahora) {
     if (!this.lista.length) return false;
-    this.lista = this.lista.filter((tw) => {
+    // Lo que se agregue mientras corre este paso (por ejemplo, al llegar a una zona) no se pierde.
+    const actuales = this.lista;
+    this.lista = [];
+    const siguen = actuales.filter((tw) => {
       if (ahora < tw.t0) return true;
       const p = clamp((ahora - tw.t0) / tw.dur, 0, 1);
       tw.aplicar(lerp(tw.desde, tw.hasta, tw.ease(p)));
       return p < 1;
     });
+    this.lista = siguen.concat(this.lista);
     return true;
   }
-  terminar() { for (const tw of this.lista) tw.aplicar(tw.hasta); this.lista = []; }
+  terminar() {
+    // Si al terminar una animación se arma otra, también se termina (con un tope por las dudas).
+    for (let vuelta = 0; vuelta < 5 && this.lista.length; vuelta++) {
+      const l = this.lista; this.lista = [];
+      for (const tw of l) tw.aplicar(tw.hasta);
+    }
+    this.lista = [];
+  }
 }
 
 // ---------- Texturas dibujadas en canvas (sin archivos externos) ----------
@@ -466,6 +477,11 @@ function crearCaja(anim) {
   const pila = new THREE.Mesh(geoPila, mat(C.verde)); pila.position.set(-0.7, 1.07, 0); pila.scale.y = 0.05; g.add(pila);
   const faja = caja(0.57, 0.06, 0.32, 0xe9f6ef); faja.position.set(-0.7, 1.1, 0); g.add(faja);
   marcar(g, 'caja');
+  // Monedas para festejar una venta nueva (no son datos: solo el festejo)
+  const monedas = [];
+  const geoMoneda = new THREE.CylinderGeometry(0.055, 0.055, 0.016, 20);
+  const oro = metal(0xe6b84a, { roughness: 0.25 });
+  for (let i = 0; i < 12; i++) { const mo = new THREE.Mesh(geoMoneda, oro); mo.visible = false; mo.castShadow = true; g.add(mo); monedas.push(mo); }
   const altoMax = 1.3;
   return {
     id: 'caja', grupo: g, anclaY: 2.0, focoY: 1.0, zoomFoco: 2.1,
@@ -477,6 +493,25 @@ function crearCaja(anim) {
     },
     seleccionar(on) {
       anim.ir({ desde: cajon.position.z, hasta: on ? 0.45 : 0.05, aplicar: (v) => { cajon.position.z = v; }, dur: 420 });
+    },
+    // Venta nueva: se abre el cajón y saltan monedas que caen sobre el mostrador
+    celebrar() {
+      anim.ir({ desde: cajon.position.z, hasta: 0.45, aplicar: (v) => { cajon.position.z = v; }, dur: 250 });
+      anim.ir({ desde: 0.45, hasta: 0.05, aplicar: (v) => { cajon.position.z = v; }, dur: 400, demora: 1500 });
+      monedas.forEach((mo, i) => {
+        const ang = (i / monedas.length) * Math.PI * 2, dist = 0.25 + (i % 3) * 0.12;
+        const x1 = 0.7 + Math.cos(ang) * dist, z1 = 0.05 + Math.sin(ang) * dist * 0.6;
+        mo.visible = true; mo.position.set(0.7, 1.3, 0.05);
+        anim.ir({
+          desde: 0, hasta: 1, dur: 700, demora: i * 35, ease: (t) => t,
+          aplicar: (t) => {
+            mo.position.x = lerp(0.7, x1, t); mo.position.z = lerp(0.05, z1, t);
+            mo.position.y = 1.3 + Math.sin(t * Math.PI) * 0.55 - t * 0.21;
+            mo.rotation.x = t * 9 + i; mo.rotation.z = t * 5;
+          },
+        });
+        anim.ir({ desde: 1, hasta: 0, dur: 1, demora: 2600 + i * 20, aplicar: (t) => { if (t <= 0) mo.visible = false; } });
+      });
     },
   };
 }
@@ -583,6 +618,12 @@ function crearClientes(anim) {
       for (let i = 0; i < activas; i++) ubicarBurbuja(burbujas[i], i, (t / 3.2 + i / activas) % 1);
       return true;
     },
+    // Dónde están parados los clientes y el atril (para que tu personaje los esquive al manejarlo)
+    obstaculos() {
+      const lista = [[g.position.x, g.position.z, 0.35]];
+      for (const p of gente) if (p.visible) lista.push([g.position.x + p.position.x, g.position.z + p.position.z, 0.24]);
+      return lista;
+    },
   };
 }
 
@@ -622,6 +663,74 @@ function crearMarketing(anim) {
       if (!encendidos) return false;
       for (let i = 0; i < encendidos; i++) tiles[i].material.emissiveIntensity = 0.7 + 0.25 * Math.sin(t * 2 + i * 0.7);
       return true;
+    },
+  };
+}
+
+// Meta del mes: termómetro de neón en la pared izquierda. Se llena con lo facturado en el mes.
+function crearMeta(anim) {
+  const g = new THREE.Group();
+  const placa = caja(0.06, 2.75, 0.62, C.noche); placa.position.set(0.03, 1.62, 0); g.add(placa);
+  const borde = caja(0.04, 2.83, 0.7, C.celeste, { emissive: C.neon, emissiveIntensity: 0.35 }); borde.position.set(0.01, 1.62, 0); g.add(borde);
+  // Letrero "META"
+  const c = document.createElement('canvas'); c.width = 256; c.height = 96;
+  const ctx = c.getContext('2d');
+  const dibujar = () => {
+    ctx.clearRect(0, 0, 256, 96);
+    ctx.font = '64px "Archivo Black", "Arial Black", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = '#1eb6ff'; ctx.shadowBlur = 18; ctx.fillStyle = '#d9f5ff'; ctx.fillText('META', 128, 52);
+  };
+  dibujar();
+  const texLetrero = new THREE.CanvasTexture(c); texLetrero.colorSpace = THREE.SRGBColorSpace;
+  document.fonts?.load('64px "Archivo Black"').then(() => { dibujar(); texLetrero.needsUpdate = true; }).catch(() => {});
+  const letrero = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.2), new THREE.MeshBasicMaterial({ map: texLetrero, transparent: true, toneMapped: false, depthWrite: false }));
+  letrero.position.set(0.075, 2.82, 0); letrero.rotation.y = Math.PI / 2; g.add(letrero);
+  // Tubo de vidrio, relleno y bulbo
+  const ALTO = 2.0, BASE = 0.62;
+  const tubo = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, ALTO, 24, 1, true), vidrioMat({ opacity: 0.25, side: THREE.DoubleSide }));
+  tubo.position.set(0.2, BASE + ALTO / 2, 0); g.add(tubo);
+  const geoRelleno = new THREE.CylinderGeometry(0.075, 0.075, 1, 20); geoRelleno.translate(0, 0.5, 0);
+  const matRelleno = new THREE.MeshStandardMaterial({ color: C.celeste, emissive: C.neon, emissiveIntensity: 1.1, roughness: 0.3, toneMapped: false });
+  const relleno = new THREE.Mesh(geoRelleno, matRelleno); relleno.position.set(0.2, BASE, 0); relleno.scale.y = 0.001; g.add(relleno);
+  const bulbo = new THREE.Mesh(new THREE.SphereGeometry(0.16, 24, 16), matRelleno); bulbo.position.set(0.2, BASE - 0.08, 0); g.add(bulbo);
+  // Marcas cada 25 %
+  for (let i = 1; i <= 4; i++) {
+    const marca = caja(0.02, 0.015, i === 4 ? 0.34 : 0.22, 0xd9f5ff, { emissive: 0xd9f5ff, emissiveIntensity: 0.6 });
+    marca.position.set(0.08, BASE + (ALTO * i) / 4, -0.22); g.add(marca);
+  }
+  marcar(g, 'meta');
+  // Papelitos para festejar
+  const papelitos = [];
+  const colores = [C.celeste, C.neon, 0xffffff, C.verde, C.ambar];
+  for (let i = 0; i < 36; i++) {
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(0.07, 0.04), new THREE.MeshBasicMaterial({ color: colores[i % colores.length], side: THREE.DoubleSide, toneMapped: false }));
+    p.visible = false; g.add(p); papelitos.push(p);
+  }
+  let progreso = 0;
+  return {
+    id: 'meta', grupo: g, anclaY: 3.15, focoY: 1.6, zoomFoco: 2.0,
+    actualizar(m) {
+      const meta = m.meta;
+      const hasta = meta && meta.meta ? clamp(meta.progreso, 0, 1) : 0;
+      const llegaste = !!(meta && meta.alcanzada);
+      matRelleno.color.setHex(llegaste ? C.verde : C.celeste);
+      matRelleno.emissive.setHex(llegaste ? 0x3dd68c : C.neon);
+      tubo.material.opacity = meta && meta.meta ? 0.25 : 0.12;
+      anim.ir({ desde: progreso, hasta, dur: 1100, aplicar: (v) => { progreso = v; relleno.scale.y = Math.max(0.001, v * ALTO); } });
+    },
+    festejar() {
+      papelitos.forEach((p, i) => {
+        const x = 0.4 + Math.random() * 1.6, z = (Math.random() - 0.5) * 1.6, giro = (Math.random() - 0.5) * 12;
+        p.visible = true; p.position.set(0.3, 3.0, 0);
+        anim.ir({
+          desde: 0, hasta: 1, dur: 1800 + Math.random() * 700, demora: i * 25, ease: (t) => t,
+          aplicar: (t) => {
+            p.position.set(lerp(0.3, x, Math.min(1, t * 1.6)), 3.0 + Math.sin(Math.min(1, t * 1.6) * Math.PI) * 0.6 - t * 2.9, lerp(0, z, t));
+            p.rotation.set(t * giro, t * giro * 0.7, t * 3);
+            if (t >= 1) p.visible = false;
+          },
+        });
+      });
     },
   };
 }
@@ -764,6 +873,25 @@ function crearCamioneta(anim) {
       for (const m of lucesDelanteras) m.emissiveIntensity = lerp(0.35, 3.0, v);
       for (const m of lucesTraseras) m.emissiveIntensity = lerp(0.5, 2.2, v);
     },
+    // Día con envíos (máquina del tiempo): la camioneta de entregados sale a repartir y vuelve.
+    // Es solo una animación del estado; no muestra recorridos reales.
+    salirYVolver() {
+      const f = furgones.entregado;
+      if (!f.visible || f.userData.enViaje) return;
+      f.userData.enViaje = true;
+      const x0 = LUGARES.entregado;
+      let pz = 0.3, px = x0;
+      const mover = (z, x) => { f.userData.girarRuedas(Math.abs(z - pz) + Math.abs(x - px)); pz = z; px = x; f.position.set(x, 0, z); };
+      anim.ir({ desde: 0.3, hasta: 1.6, dur: 500, aplicar: (z) => mover(z, x0) });                       // sale de culata
+      anim.ir({ desde: Math.PI, hasta: Math.PI / 2, dur: 400, demora: 500, aplicar: (r) => { f.rotation.y = r; } }); // gira hacia la calle
+      anim.ir({ desde: x0, hasta: 7.5, dur: 700, demora: 850, ease: (t) => t * t, aplicar: (x) => mover(1.6, x) }); // se va
+      anim.ir({ desde: 0, hasta: 1, dur: 1, demora: 1600, aplicar: () => { f.visible = false; } });
+      anim.ir({ desde: 0, hasta: 1, dur: 1, demora: 2300, aplicar: () => { f.visible = true; px = -9; mover(1.6, -9); } }); // vuelve por el otro lado
+      anim.ir({ desde: -9, hasta: x0, dur: 900, demora: 2300, aplicar: (x) => mover(1.6, x) });
+      anim.ir({ desde: Math.PI / 2, hasta: Math.PI, dur: 400, demora: 3200, aplicar: (r) => { f.rotation.y = r; } });
+      anim.ir({ desde: 1.6, hasta: 0.3, dur: 500, demora: 3550, aplicar: (z) => mover(z, x0) });
+      anim.ir({ desde: 0, hasta: 1, dur: 1, demora: 4100, aplicar: () => { f.userData.enViaje = false; } });
+    },
   };
 }
 
@@ -779,6 +907,7 @@ const PARADAS = {
   proveedores: { p: [-6.1, 1.9], mira: [-1, 0] },
   clientes: { p: [-4.75, 0.55], mira: [0.6, 0.8] },
   camioneta: { p: [4.0, 4.75], mira: [0, 1] },     // en la vereda, mirando a la calle
+  meta: { p: [-6.0, 0.55], mira: [-1, 0] },         // frente al termómetro de la pared
 };
 // Puntos de paso por los pasillos. Cada tramo se revisó contra el plano: no cruza muebles ni clientes.
 const PASOS = {
@@ -790,9 +919,33 @@ const TRAMOS = [
   ['centro', 'izquierda'], ['izquierda', 'marketing'], ['izquierda', 'proveedores'], ['izquierda', 'clientes'],
   ['centro', 'clientes'], ['izquierda', 'deposito'], ['centro', 'izqCaja'], ['izqCaja', 'deposito'], ['izqCaja', 'izquierda'],
   ['centro', 'pasillo'], ['pasillo', 'detrasCaja'], ['centro', 'caja'], ['pasillo', 'caja'], ['centro', 'ganancia'], ['pasillo', 'ganancia'],
-  ['ganancia', 'este'], ['este', 'productos'], ['detrasCaja', 'productos'],
+  ['ganancia', 'este'], ['este', 'productos'], ['detrasCaja', 'productos'], ['izquierda', 'meta'],
 ];
 const NODOS = { ...PASOS, ...Object.fromEntries(Object.entries(PARADAS).map(([k, v]) => [k, v.p])) };
+
+// Para manejar a tu personaje: rectángulos que no se pueden atravesar [x0, z0, x1, z1] y círculos [x, z, radio].
+const OBSTACULOS = [
+  [-2.35, -1.95, 1.15, -0.85],   // mostrador de la caja
+  [1.85, -1.8, 3.55, -0.8],      // mesa de la ganancia
+  [3.0, -6.1, 7.1, -5.1],        // estante de productos
+  [-7.1, -2.9, -4.45, -2.7],     // tabique del depósito (frente)
+  [-3.68, -6.1, -3.52, -2.75],   // tabique del depósito (costado)
+  [-7.1, -1.9, -6.5, -0.1],      // pantalla de marketing
+  [-7.1, 0.15, -6.7, 0.95],      // termómetro de la meta
+  [-7.1, 3.9, -1.0, 4.1], [1.0, 3.9, 7.1, 4.1], // vidriera (la puerta queda libre)
+];
+const CIRCULOS_FIJOS = [[6.3, -2.0, 0.4], [-1.5, 3.5, 0.3], [1.5, 3.5, 0.3], [-5.5, 5.0, 0.12]]; // plantas y farola
+const LIMITES = { x0: -6.85, x1: 6.85, z0: -5.85, z1: 5.15 }; // adentro del local y la vereda
+const RADIO_DUENIO = 0.22;
+
+function puedeEstar(x, z, circulos) {
+  if (x < LIMITES.x0 || x > LIMITES.x1 || z < LIMITES.z0 || z > LIMITES.z1) return false;
+  for (const [a, b, c, d] of OBSTACULOS) {
+    if (x > a - RADIO_DUENIO && x < c + RADIO_DUENIO && z > b - RADIO_DUENIO && z < d + RADIO_DUENIO) return false;
+  }
+  for (const [cx, cz, r] of circulos) if (Math.hypot(x - cx, z - cz) < r + RADIO_DUENIO) return false;
+  return true;
+}
 const VECINOS = {};
 for (const [a, b] of TRAMOS) { (VECINOS[a] ||= []).push(b); (VECINOS[b] ||= []).push(a); }
 const distancia2 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -859,7 +1012,7 @@ function crearDuenio(anim) {
 
   // Arranca en el medio del local, mirando hacia la cámara
   let ruta = null, paso = 0, velocidad = 3, fase = 0, rumbo = Math.PI / 4, alLlegar = null, destino = 'centro';
-  let parado = 'centro';
+  let parado = 'centro', quietoManual = true;
   g.position.set(PASOS.centro[0], 0, PASOS.centro[1]);
   g.rotation.y = rumbo;
 
@@ -867,7 +1020,7 @@ function crearDuenio(anim) {
   function quieto() { piernaI.rotation.x = piernaD.rotation.x = 0; brazoI.rotation.x = brazoD.rotation.x = 0; cuerpo.position.y = 0; }
 
   function llegar() {
-    ruta = null; parado = destino; quieto();
+    ruta = null; parado = destino; quieto(); quietoManual = true;
     const m = PARADAS[destino].mira;
     const final = anguloCorto(g.rotation.y, Math.atan2(m[0], m[1]));
     anim.ir({ desde: g.rotation.y, hasta: final, aplicar: (a) => { g.rotation.y = a; }, dur: 260 });
@@ -916,6 +1069,42 @@ function crearDuenio(anim) {
     },
     terminar() { if (ruta) { const [x, z] = PARADAS[destino].p; g.position.set(x, 0, z); llegar(); } },
     detener() { alLlegar = null; },
+    // Manejo manual: (vx, vz) es la velocidad en el piso. Si choca, prueba deslizarse por un eje.
+    manual(vx, vz, dt, circulos) {
+      const v = Math.hypot(vx, vz);
+      if (v < 0.01) {
+        // Quieto: deja las piernas derechas una sola vez (así no corta el gesto de señalar)
+        if (!quietoManual) { quieto(); quietoManual = true; }
+        return false;
+      }
+      quietoManual = false;
+      if (ruta) { ruta = null; alLlegar = null; }
+      parado = null;
+      const x = g.position.x, z = g.position.z;
+      const nx = x + vx * dt, nz = z + vz * dt;
+      // Si un cliente quedó encima tuyo (ellos también se mueven), podés salir igual: solo frenan los muebles.
+      const choques = puedeEstar(x, z, circulos) ? circulos : [];
+      if (puedeEstar(nx, nz, choques)) { g.position.x = nx; g.position.z = nz; }
+      else if (puedeEstar(nx, z, choques)) g.position.x = nx;
+      else if (puedeEstar(x, nz, choques)) g.position.z = nz;
+      rumbo = Math.atan2(vx, vz);
+      g.rotation.y = lerp(g.rotation.y, anguloCorto(g.rotation.y, rumbo), Math.min(1, dt * 14));
+      fase += dt * v * 3.4;
+      const s = Math.sin(fase);
+      piernaI.rotation.x = s * 0.6; piernaD.rotation.x = -s * 0.6;
+      brazoI.rotation.x = -s * 0.5; brazoD.rotation.x = s * 0.5;
+      cuerpo.position.y = Math.abs(Math.cos(fase)) * 0.04;
+      return true;
+    },
+    // Zona más cercana (si estás a menos de 1,1 de su lugar)
+    zonaCercana() {
+      let mejor = null, dist = 1.1;
+      for (const [id, p] of Object.entries(PARADAS)) {
+        const d = Math.hypot(g.position.x - p.p[0], g.position.z - p.p[1]);
+        if (d < dist) { mejor = id; dist = d; }
+      }
+      return mejor;
+    },
     cuadro(dt) {
       if (!ruta) return false;
       let avance = velocidad * dt;
@@ -944,7 +1133,7 @@ function crearDuenio(anim) {
 
 // ---------- Escena ----------
 
-export function crearEscena(contenedor, { rotulos, alSeleccionar, alPasar }) {
+export function crearEscena(contenedor, { rotulos, alSeleccionar, alPasar, alAcercarse }) {
   const lienzo = document.createElement('canvas');
   lienzo.className = 'escena-lienzo';
   lienzo.setAttribute('aria-hidden', 'true');
@@ -980,7 +1169,7 @@ export function crearEscena(contenedor, { rotulos, alSeleccionar, alPasar }) {
 
   const objetos = [
     crearDeposito(anim), crearProveedores(), crearProductos(anim), crearCaja(anim),
-    crearGanancia(anim), crearClientes(anim), crearMarketing(anim), crearCamioneta(anim),
+    crearGanancia(anim), crearClientes(anim), crearMarketing(anim), crearCamioneta(anim), crearMeta(anim),
   ];
   const porId = new Map(objetos.map((o) => [o.id, o]));
   for (const o of objetos) { const [x, z] = POS[o.id]; o.grupo.position.set(x, 0, z); escena.add(o.grupo); }
@@ -1007,7 +1196,7 @@ export function crearEscena(contenedor, { rotulos, alSeleccionar, alPasar }) {
   }
   aplicarSombras();
   // Solo en la PC, para revisar la escena desde la consola del navegador
-  if (location.hostname === 'localhost') window.__maqueta = { escena, renderer, sol, camara: () => camara };
+  if (location.hostname === 'localhost') window.__maqueta = { escena, renderer, sol, camara: () => camara, duenio, anim };
 
   // Rótulos HTML que siguen a cada objeto
   const elRotulos = new Map();
@@ -1095,6 +1284,8 @@ export function crearEscena(contenedor, { rotulos, alSeleccionar, alPasar }) {
   }
 
   let raf = 0, ultimoCuadro = 0;
+  let manejo = false, zonaCerca = null;
+  const direccion = { x: 0, y: 0 };
   function bucle(ahora) {
     raf = requestAnimationFrame(bucle);
     const dt = ultimoCuadro ? Math.min(0.05, (ahora - ultimoCuadro) / 1000) : 0;
@@ -1102,7 +1293,22 @@ export function crearEscena(contenedor, { rotulos, alSeleccionar, alPasar }) {
     const hayAnim = anim.paso(ahora);
     let hayBucles = false;
     if (movimiento) for (const o of objetos) if (o.cuadro && o.cuadro(ahora / 1000)) hayBucles = true;
-    if (duenio.cuadro(dt)) hayBucles = true;
+    if (manejo) {
+      // Lo que pedís en pantalla (arriba = alejarse de la cámara) pasado al piso del local
+      const adelante = [-Math.sin(yaw), -Math.cos(yaw)], derecha = [Math.cos(yaw), -Math.sin(yaw)];
+      const vx = (derecha[0] * direccion.x + adelante[0] * direccion.y) * 2.8;
+      const vz = (derecha[1] * direccion.x + adelante[1] * direccion.y) * 2.8;
+      const hayInput = Math.hypot(direccion.x, direccion.y) > 0.01;
+      if (hayInput || !duenio.caminando) {
+        const circulos = [...CIRCULOS_FIJOS, ...porId.get('clientes').obstaculos()];
+        if (duenio.manual(vx, vz, dt, circulos)) hayBucles = true;
+      } else if (duenio.cuadro(dt)) hayBucles = true; // tocaste una zona: sigue caminando solo hasta ahí
+      // La cámara te sigue
+      const objetivo = new THREE.Vector3(duenio.grupo.position.x, 1.0, duenio.grupo.position.z);
+      if (centro.distanceTo(objetivo) > 0.01) { centro.lerp(objetivo, Math.min(1, dt * 4)); ubicarCamara(); hayBucles = true; }
+      const cerca = duenio.zonaCercana();
+      if (cerca !== zonaCerca) { zonaCerca = cerca; alAcercarse?.(cerca); }
+    } else if (duenio.cuadro(dt)) hayBucles = true;
     if (hayAnim || hayBucles || sucio) {
       renderer.render(escena, camara);
       posicionarRotulos();
@@ -1228,7 +1434,7 @@ export function crearEscena(contenedor, { rotulos, alSeleccionar, alPasar }) {
         alLlegar?.();
       };
       const ms = duenio.irA(id, { reducido: anim.reducido || !movimiento, cb: terminar });
-      if (ms > 0) {
+      if (ms > 0 && !manejo) { // manejando, la cámara ya te sigue
         const o = porId.get(id);
         const destino = new THREE.Vector3(o.grupo.position.x, o.focoY ?? 1, o.grupo.position.z);
         // A mitad de camino entre donde estás y la zona, para que se vea la caminata.
@@ -1240,6 +1446,30 @@ export function crearEscena(contenedor, { rotulos, alSeleccionar, alPasar }) {
       return ms;
     },
     detenerDuenio() { duenio.detener(); rotuloDuenioDestino.textContent = ''; rotuloDuenio.classList.remove('caminando'); },
+    // Modo manejo: vos movés a tu personaje y la cámara te sigue
+    setManejo(activo) {
+      manejo = activo;
+      direccion.x = 0; direccion.y = 0;
+      rotuloDuenio.classList.toggle('manejando', activo);
+      if (activo) {
+        duenio.detener(); rotuloDuenioDestino.textContent = '';
+        api.zoom(Math.max(zoom, 1.7));
+        zonaCerca = duenio.zonaCercana(); alAcercarse?.(zonaCerca);
+      } else {
+        zonaCerca = null; alAcercarse?.(null);
+        api.vistaGeneral();
+      }
+      sucio = true;
+    },
+    // (x, y) entre -1 y 1: derecha e izquierda, arriba (alejarse) y abajo (acercarse)
+    setDireccion(x, y) {
+      const largo = Math.hypot(x, y);
+      direccion.x = largo > 1 ? x / largo : x;
+      direccion.y = largo > 1 ? y / largo : y;
+    },
+    celebrarVenta() { porId.get('caja').celebrar(); sucio = true; },
+    festejarMeta() { porId.get('meta').festejar(); sucio = true; },
+    envioDelDia() { porId.get('camioneta').salirYVolver(); sucio = true; },
     get duenioCaminando() { return duenio.caminando; },
     girar(dir) {
       const desde = yaw; yawDestino += (dir * Math.PI) / 2;

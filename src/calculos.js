@@ -14,11 +14,47 @@ export function sumarDias(fechaISO, dias) {
 }
 
 // Períodos relativos a la fecha de carga de los datos.
-export function rangoPeriodo(periodo, fechaCarga) {
+// 'tiempo' es la máquina del tiempo: todo lo acumulado desde el principio hasta el día elegido.
+export function rangoPeriodo(periodo, fechaCarga, diaElegido) {
   const hasta = fechaCarga;
   if (periodo === 'semana') return { id: 'semana', desde: sumarDias(hasta, -6), hasta };
   if (periodo === 'mes') return { id: 'mes', desde: hasta.slice(0, 8) + '01', hasta };
+  if (periodo === 'tiempo' && diaElegido) return { id: 'tiempo', desde: null, hasta: diaElegido < hasta ? diaElegido : hasta };
   return { id: 'todo', desde: null, hasta };
+}
+
+// Primer día con ventas: desde ahí arranca la máquina del tiempo.
+export function primerDiaDatos(datos) {
+  const fechas = datos.pedidos.map((p) => p.fecha).filter(Boolean).sort();
+  return fechas[0] || datos.fuente.cargado_at.slice(0, 10);
+}
+
+// Meta de facturación del mes de la fecha de carga. La meta la elige el dueño; el resto sale de las tablas.
+export function calcularMeta(datos, meta) {
+  const m = calcularMetricas(datos, 'mes');
+  const { desde, hasta } = m.rango;
+  const [y, mes] = hasta.split('-').map(Number);
+  const ultimoDia = new Date(Date.UTC(y, mes, 0)).getUTCDate();
+  const diasRestantes = ultimoDia - Number(hasta.slice(8, 10));
+  const facturado = m.caja.facturacion;
+  const valor = Number(meta) > 0 ? Number(meta) : null;
+  const falta = valor === null ? null : Math.max(valor - facturado, 0);
+  return {
+    mes: hasta.slice(0, 7), desde, hasta, meta: valor, facturado,
+    progreso: valor === null ? null : facturado / valor,
+    falta, alcanzada: valor !== null && facturado >= valor,
+    diasRestantes,
+    porDiaNecesario: falta === null || falta === 0 ? 0 : (diasRestantes > 0 ? falta / diasRestantes : falta),
+  };
+}
+
+// Ventas que aparecieron entre dos cargas: las que tienen algún pedido que antes no estaba.
+export function ventasNuevas(datosAntes, datosAhora) {
+  const antes = new Set(datosAntes.pedidos.map((p) => p.id));
+  const nuevos = new Set(datosAhora.pedidos.filter((p) => !antes.has(p.id)).map((p) => p.id));
+  if (!nuevos.size) return [];
+  const idx = indiceContactos(datosAhora.clientes);
+  return agruparVentas(datosAhora.pedidos, idx).filter((v) => v.pedido_ids.some((id) => nuevos.has(id)));
 }
 
 export function enRango(fecha, rango) {
@@ -149,9 +185,9 @@ export function calcularDeposito(productos) {
   };
 }
 
-export function calcularMetricas(datos, periodoId) {
+export function calcularMetricas(datos, periodoId, { dia } = {}) {
   const fechaCarga = datos.fuente.cargado_at.slice(0, 10);
-  const rango = rangoPeriodo(periodoId, fechaCarga);
+  const rango = rangoPeriodo(periodoId, fechaCarga, dia);
   const idx = indiceContactos(datos.clientes);
 
   const todasLasVentas = agruparVentas(datos.pedidos, idx).filter((v) => v.fecha <= rango.hasta);

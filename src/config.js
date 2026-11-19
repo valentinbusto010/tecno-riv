@@ -15,6 +15,7 @@ export const PERIODOS = [
   { id: 'semana', etiqueta: '7 días' },
   { id: 'mes', etiqueta: 'Este mes' },
   { id: 'todo', etiqueta: 'Todo' },
+  { id: 'tiempo', etiqueta: 'Día a día' },
 ];
 
 export const PERIODO_INICIAL = 'todo';
