@@ -33,11 +33,107 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const suave = (t) => 1 - Math.pow(1 - t, 3);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
-function mat(color, extra = {}) {
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.8, metalness: 0, ...extra });
+// ---------- Materiales y formas ----------
+
+// Números al azar repetibles: las texturas salen siempre iguales.
+function azar(semilla) { let s = semilla >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
+
+const texturas = new Map();
+function texturaMadera(color) {
+  if (texturas.has('madera' + color)) return texturas.get('madera' + color);
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d'), r = azar(color);
+  const base = new THREE.Color(color);
+  g.fillStyle = '#' + base.getHexString(); g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 70; i++) {
+    const y = r() * 256, alto = 1 + r() * 3, oscuro = r() < 0.6;
+    g.fillStyle = oscuro ? `rgba(60,35,15,${0.05 + r() * 0.12})` : `rgba(255,240,215,${0.05 + r() * 0.1})`;
+    g.beginPath(); g.moveTo(0, y);
+    for (let x = 0; x <= 256; x += 16) g.lineTo(x, y + Math.sin(x / 40 + i) * 3 * r());
+    g.lineTo(256, y + alto); g.lineTo(0, y + alto); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  texturas.set('madera' + color, t);
+  return t;
 }
-function caja(w, h, d, color, extra) { return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color, extra)); }
-function cilindro(r, h, color, seg = 20) { return new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, seg), mat(color)); }
+function texturaAsfalto() {
+  if (texturas.has('asfalto')) return texturas.get('asfalto');
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d'), r = azar(7);
+  g.fillStyle = '#4b5263'; g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 2600; i++) {
+    const v = Math.floor(55 + r() * 50);
+    g.fillStyle = `rgba(${v},${v + 4},${v + 12},${0.35 + r() * 0.4})`;
+    g.fillRect(r() * 256, r() * 256, 1 + r() * 2, 1 + r() * 2);
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(6, 1.5);
+  texturas.set('asfalto', t);
+  return t;
+}
+
+function mat(color, extra = {}) {
+  const esMadera = color === C.madera || color === C.maderaOscura;
+  return new THREE.MeshStandardMaterial({
+    color: esMadera ? 0xffffff : color, roughness: esMadera ? 0.55 : 0.75, metalness: 0, envMapIntensity: 0.6,
+    ...(esMadera ? { map: texturaMadera(color) } : {}), ...extra,
+  });
+}
+const metal = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.32, metalness: 0.75, envMapIntensity: 1, ...extra });
+const vidrioMat = (extra = {}) => new THREE.MeshPhysicalMaterial({
+  color: C.vidrio, transparent: true, opacity: 0.2, roughness: 0.04, metalness: 0, envMapIntensity: 1.4, depthWrite: false, ...extra,
+});
+
+// Caja con bordes redondeados: los vértices cerca de los bordes se llevan a un arco y las normales
+// se calculan a mano para que la luz no marque costuras.
+const geometrias = new Map();
+function geoRedondeada(w, h, d, radio = 0.035) {
+  const r = Math.max(0.001, Math.min(radio, w / 2 - 1e-4, h / 2 - 1e-4, d / 2 - 1e-4));
+  const clave = [w, h, d, r].map((n) => n.toFixed(4)).join('|');
+  if (geometrias.has(clave)) return geometrias.get(clave);
+  const g = new THREE.BoxGeometry(1, 1, 1, 5, 5, 5);
+  const lado = (m) => [-m, -m + 0.586 * r, -m + r, m - r, m - 0.586 * r, m];
+  const P = [lado(w / 2), lado(h / 2), lado(d / 2)];
+  const pos = g.attributes.position, nor = g.attributes.normal;
+  const v = new THREE.Vector3(), adentro = new THREE.Vector3(), n = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    const k = [pos.getX(i), pos.getY(i), pos.getZ(i)].map((t) => Math.round((t + 0.5) * 5));
+    v.set(P[0][k[0]], P[1][k[1]], P[2][k[2]]);
+    adentro.set(clamp(v.x, -w / 2 + r, w / 2 - r), clamp(v.y, -h / 2 + r, h / 2 - r), clamp(v.z, -d / 2 + r, d / 2 - r));
+    n.subVectors(v, adentro);
+    if (n.lengthSq() > 1e-12) { n.normalize(); v.copy(adentro).addScaledVector(n, r); }
+    else n.fromBufferAttribute(nor, i);
+    pos.setXYZ(i, v.x, v.y, v.z); nor.setXYZ(i, n.x, n.y, n.z);
+  }
+  g.computeBoundingSphere();
+  geometrias.set(clave, g);
+  return g;
+}
+function caja(w, h, d, color, extra, radio) {
+  const r = radio ?? Math.min(0.035, Math.min(w, h, d) * 0.25);
+  return new THREE.Mesh(geoRedondeada(w, h, d, r), mat(color, extra));
+}
+function cilindro(r, h, color, seg = 24) { return new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, seg), mat(color)); }
+function capsula(r, largo, color) { return new THREE.Mesh(new THREE.CapsuleGeometry(r, largo, 6, 14), mat(color)); }
+
+// Reflejos: un "estudio de fotos" chico que se convierte en mapa de entorno (día y noche).
+function crearEntornos(renderer) {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const hacer = (fondo, luces) => {
+    const s = new THREE.Scene();
+    s.add(new THREE.Mesh(new THREE.BoxGeometry(30, 30, 30), new THREE.MeshBasicMaterial({ color: fondo, side: THREE.BackSide })));
+    for (const [x, y, z, w, h, color, fuerza] of luces) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(fuerza), side: THREE.DoubleSide }));
+      m.position.set(x, y, z); m.lookAt(0, 0, 0); s.add(m);
+    }
+    const t = pmrem.fromScene(s, 0.035).texture;
+    s.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
+    return t;
+  };
+  const dia = hacer(0x7d8aa3, [[0, 12, 0, 14, 14, 0xffffff, 3.2], [12, 4, 5, 6, 8, 0xe6f1ff, 2.2], [-12, 5, -3, 6, 6, 0xfff0dc, 1.6], [0, 4, -12, 10, 3, 0x1eb6ff, 1.4]]);
+  const noche = hacer(0x0b1020, [[0, 12, 0, 10, 10, 0x9fb6d8, 0.7], [0, 4, -12, 10, 3, 0x1eb6ff, 2.6], [12, 3, 5, 3, 3, 0xffd98a, 1.2]]);
+  pmrem.dispose();
+  return { dia, noche };
+}
 function marcar(obj, id, extra = {}) {
   obj.traverse((o) => { if (o.isMesh) o.userData = { ...o.userData, objeto: id, ...extra }; });
   return obj;
@@ -124,13 +220,16 @@ function crearLocal(anim) {
   const { x0, x1, z0, z1, alto } = LOCAL;
   const ancho = x1 - x0, fondo = z1 - z0;
 
-  const piso = new THREE.Mesh(new THREE.BoxGeometry(ancho, 0.2, fondo), mat(0xffffff, { map: texturaBaldosas(), roughness: 0.6 }));
+  // Piso de baldosas con un poco de brillo: refleja el cartel y las luces
+  const piso = new THREE.Mesh(new THREE.BoxGeometry(ancho, 0.2, fondo), mat(0xe9edf3, { map: texturaBaldosas(), roughness: 0.42, envMapIntensity: 0.45 }));
+  piso.userData.sinSombraPropia = true;
   piso.position.set((x0 + x1) / 2, -0.1, (z0 + z1) / 2); g.add(piso);
 
   // Vereda, cordón y calle
   const vereda = caja(ancho, 0.16, 1.2, C.vereda); vereda.position.set(0, -0.12, z1 + 0.6); g.add(vereda);
   const cordon = caja(ancho, 0.18, 0.12, C.cordon); cordon.position.set(0, -0.11, z1 + 1.26); g.add(cordon);
-  const calle = caja(ancho, 0.1, 2.8, C.calle); calle.position.set(0, -0.2, z1 + 2.72); g.add(calle);
+  const calle = new THREE.Mesh(new THREE.BoxGeometry(ancho, 0.1, 2.8), mat(0xffffff, { map: texturaAsfalto(), roughness: 0.92 }));
+  calle.position.set(0, -0.2, z1 + 2.72); calle.userData.sinSombraPropia = true; g.add(calle);
   for (let x = -6; x <= 6; x += 2.4) { const l = caja(1.1, 0.01, 0.08, C.linea); l.position.set(x, -0.14, z1 + 3.9); g.add(l); }
 
   // Paredes del fondo y de la izquierda (se aclaran cuando quedan entre la cámara y el local)
@@ -148,7 +247,7 @@ function crearLocal(anim) {
 
   // Vidriera del frente, cortada a media altura para ver adentro (como una maqueta), con puerta en el centro
   const ALTO_VID = 1.05;
-  const vidMat = mat(C.vidrio, { transparent: true, opacity: 0.16, roughness: 0.1, depthWrite: false });
+  const vidMat = vidrioMat();
   const tramo = (xa, xb) => {
     const b = caja(xb - xa, 0.3, 0.16, C.noche); b.position.set((xa + xb) / 2, 0.15, z1); g.add(b);
     const v = new THREE.Mesh(new THREE.BoxGeometry(xb - xa, ALTO_VID - 0.3, 0.04), vidMat); v.position.set((xa + xb) / 2, 0.3 + (ALTO_VID - 0.3) / 2, z1); g.add(v);
@@ -163,7 +262,7 @@ function crearLocal(anim) {
     const m = cilindro(0.22, 0.4, C.maceta, 14); m.position.set(x, 0.2, z); g.add(m);
     const h = new THREE.Mesh(new THREE.SphereGeometry(0.36, 14, 10), mat(C.planta)); h.position.set(x, 0.68, z); h.scale.y = 1.25; g.add(h);
   }
-  const poste = cilindro(0.06, 2.4, C.grisOscuro, 10); poste.position.set(-5.5, 1.2, z1 + 1.0); g.add(poste);
+  const poste = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.4, 14), metal(C.grisOscuro)); poste.position.set(-5.5, 1.2, z1 + 1.0); g.add(poste);
   const farolMat = mat(0xfff3d6, { emissive: 0xffd98a, emissiveIntensity: 0.2 });
   const farol = new THREE.Mesh(new THREE.SphereGeometry(0.2, 14, 10), farolMat); farol.position.set(-5.5, 2.45, z1 + 1.0); g.add(farol);
 
@@ -241,10 +340,10 @@ function crearDeposito(anim) {
   for (const x of [-1.55, 1.35]) { const p = caja(0.06, 1.6, 0.7, C.maderaOscura); p.position.set(x, 0.8, -1.2); g.add(p); }
 
   const S = 0.26, PASO = 0.29, MAX = 120;
-  const geo = new THREE.BoxGeometry(S, S, S);
-  const ok = new THREE.InstancedMesh(geo, mat(C.celeste), MAX);
-  const bajo = new THREE.InstancedMesh(geo, mat(C.ambar), MAX);
-  const agot = new THREE.InstancedMesh(new THREE.BoxGeometry(0.3, 0.05, 0.3), mat(C.rojo), 40);
+  const geo = geoRedondeada(S, S, S, 0.035);
+  const ok = new THREE.InstancedMesh(geo, mat(C.celeste, { roughness: 0.6 }), MAX);
+  const bajo = new THREE.InstancedMesh(geo, mat(C.ambar, { roughness: 0.6 }), MAX);
+  const agot = new THREE.InstancedMesh(geoRedondeada(0.3, 0.05, 0.3, 0.015), mat(C.rojo), 40);
   [ok, bajo, agot].forEach((m) => { m.count = 0; g.add(m); });
   const tmp = new THREE.Object3D();
   let alturaPila = 0, ultimaFoto = '';
@@ -295,7 +394,7 @@ function crearProductos(anim) {
   const estructura = new THREE.Group(); g.add(estructura);
   const cajitas = new THREE.Group(); g.add(cajitas);
   const ANCHO = 3.9, FONDO = 0.7, NIVEL = 0.52;
-  const geoCajita = new THREE.BoxGeometry(0.17, 0.24, 0.18);
+  const geoCajita = geoRedondeada(0.17, 0.24, 0.18, 0.025);
   const colores = { ok: C.celeste, bajo: C.ambar, sin_stock: C.rojo };
   let porId = new Map(), elegido = null, filtro = null;
 
@@ -386,8 +485,8 @@ function crearGanancia(anim) {
   const g = new THREE.Group();
   const mesa = caja(1.6, 0.8, 0.9, C.blanco); mesa.position.y = 0.4; g.add(mesa);
   const tapa = caja(1.7, 0.06, 1.0, C.madera); tapa.position.y = 0.83; g.add(tapa);
-  const base = cilindro(0.32, 0.08, C.noche); base.position.y = 0.9; g.add(base);
-  const poste = cilindro(0.04, 1.1, C.noche, 12); poste.position.y = 1.45; g.add(poste);
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.34, 0.08, 32), metal(0x9aa3b5)); base.position.y = 0.9; g.add(base);
+  const poste = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.1, 16), metal(0xc8ced9)); poste.position.y = 1.45; g.add(poste);
   const pivote = new THREE.Group(); pivote.position.y = 2.0; g.add(pivote);
   const brazo = caja(1.5, 0.06, 0.08, C.celeste); pivote.add(brazo);
   const L = 0.7;
@@ -423,16 +522,17 @@ function crearGanancia(anim) {
 
 function persona(color) {
   const p = new THREE.Group();
-  const cuerpo = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.2, 0.75, 14), mat(color)); cuerpo.position.y = 0.55; p.add(cuerpo);
-  const piernas = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.25, 12), mat(C.noche)); piernas.position.y = 0.12; p.add(piernas);
-  const cabeza = new THREE.Mesh(new THREE.SphereGeometry(0.15, 16, 12), mat(0xe8c4a0)); cabeza.position.y = 1.08; p.add(cabeza);
+  const piernas = capsula(0.12, 0.3, C.noche); piernas.position.y = 0.27; piernas.scale.x = 1.25; p.add(piernas);
+  const cuerpo = capsula(0.18, 0.34, color); cuerpo.position.y = 0.72; cuerpo.material.roughness = 0.85; p.add(cuerpo);
+  const cabeza = new THREE.Mesh(new THREE.SphereGeometry(0.14, 20, 14), mat(0xe8c4a0, { roughness: 0.6 })); cabeza.position.y = 1.12; p.add(cabeza);
+  const pelo = new THREE.Mesh(new THREE.SphereGeometry(0.147, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.5), mat(0x2a1d14)); pelo.position.y = 1.13; pelo.rotation.x = -0.35; p.add(pelo);
   return p;
 }
 
 function crearClientes(anim) {
   const g = new THREE.Group();
   // Atril con el celular del bot de WhatsApp
-  const atril = cilindro(0.05, 1.0, C.noche, 10); atril.position.set(0, 0.5, 0); g.add(atril);
+  const atril = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.0, 16), metal(0xb9c1cf)); atril.position.set(0, 0.5, 0); g.add(atril);
   const pie = cilindro(0.3, 0.05, C.noche); pie.position.set(0, 0.025, 0); g.add(pie);
   const tel = caja(0.5, 0.85, 0.06, C.noche); tel.position.set(0, 1.45, 0); tel.rotation.y = Math.PI / 4; g.add(tel);
   const pant = caja(0.42, 0.74, 0.01, C.celeste, { emissive: C.neon, emissiveIntensity: 0.6 }); pant.position.set(0.024, 1.45, 0.024); pant.rotation.y = Math.PI / 4; g.add(pant);
@@ -526,6 +626,108 @@ function crearMarketing(anim) {
   };
 }
 
+// Ploteo de los costados: TECNO RIV + "Envíos · Río Cuarto" con la franja celeste
+function texturaPloteo() {
+  if (texturas.has('ploteo')) return texturas.get('ploteo');
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#0a8fd6';
+  g.beginPath(); g.moveTo(0, 200); g.bezierCurveTo(300, 150, 650, 250, 1024, 170); g.lineTo(1024, 256); g.lineTo(0, 256); g.fill();
+  g.fillStyle = '#1eb6ff';
+  g.beginPath(); g.moveTo(0, 228); g.bezierCurveTo(320, 190, 700, 270, 1024, 205); g.lineTo(1024, 222); g.bezierCurveTo(700, 285, 320, 205, 0, 244); g.fill();
+  g.textBaseline = 'middle';
+  g.font = '112px "Archivo Black", "Arial Black", sans-serif';
+  const a = 'TECNO ', wa = g.measureText(a).width;
+  g.fillStyle = '#0e1630'; g.fillText(a, 36, 84);
+  g.fillStyle = '#0a8fd6'; g.fillText('RIV', 36 + wa, 84);
+  g.font = '700 40px "Montserrat", "Segoe UI", sans-serif'; g.fillStyle = '#0e1630';
+  g.fillText('Envíos · Río Cuarto · @tecno_riv', 40, 158);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  texturas.set('ploteo', t);
+  return t;
+}
+
+// Camioneta de envíos tipo utilitario: el perfil lateral se extruye a lo ancho con bordes biselados.
+// Largo en z (trompa hacia +z), ancho en x. Sin marcas de autos: solo el ploteo de Tecno Riv.
+function furgonEnvios(lucesDelanteras, lucesTraseras) {
+  const f = new THREE.Group();
+  const ANCHO = 0.86, BISEL = 0.045;
+  const perfil = new THREE.Shape();
+  perfil.moveTo(-1.0, 0.16);
+  perfil.lineTo(-1.0, 1.08); perfil.quadraticCurveTo(-1.0, 1.12, -0.95, 1.12);
+  perfil.lineTo(0.3, 1.12); perfil.quadraticCurveTo(0.36, 1.12, 0.39, 1.07);
+  perfil.lineTo(0.66, 0.72); perfil.quadraticCurveTo(0.7, 0.67, 0.76, 0.66);
+  perfil.lineTo(0.92, 0.61); perfil.quadraticCurveTo(1.0, 0.58, 1.0, 0.48);
+  perfil.lineTo(1.0, 0.2); perfil.quadraticCurveTo(1.0, 0.16, 0.95, 0.16);
+  perfil.lineTo(-1.0, 0.16);
+  // bevelOffset = -BISEL: el bisel queda dentro del perfil y la carrocería mide exactamente lo dibujado
+  const geo = new THREE.ExtrudeGeometry(perfil, { depth: ANCHO - 2 * BISEL, bevelEnabled: true, bevelThickness: BISEL, bevelSize: BISEL, bevelOffset: -BISEL, bevelSegments: 4, curveSegments: 8 });
+  const LADO = ANCHO / 2 + 0.004; // superficie de los costados
+  geo.translate(0, 0, -(ANCHO - 2 * BISEL) / 2);
+  geo.rotateY(-Math.PI / 2);
+  const pintura = new THREE.MeshPhysicalMaterial({ color: 0xf4f6fa, roughness: 0.28, metalness: 0.15, clearcoat: 0.8, clearcoatRoughness: 0.15, envMapIntensity: 1.1 });
+  const carroceria = new THREE.Mesh(geo, pintura); f.add(carroceria);
+
+  const vidrioOscuro = new THREE.MeshPhysicalMaterial({ color: 0x15203a, roughness: 0.05, metalness: 0.3, clearcoat: 1, envMapIntensity: 1.6 });
+  const plastico = mat(0x2b3242, { roughness: 0.65 });
+  const pieza = (w, h, d, material, x, y, z, rx = 0) => {
+    const m = new THREE.Mesh(geoRedondeada(w, h, d, Math.min(0.02, Math.min(w, h, d) * 0.3)), material);
+    m.position.set(x, y, z); m.rotation.x = rx; f.add(m); return m;
+  };
+  // Parabrisas, siguiendo la inclinación entre el techo y el capó
+  const inclinacion = Math.atan2(0.39 - 0.66, 1.07 - 0.72);
+  pieza(ANCHO - 0.12, 0.42, 0.015, vidrioOscuro, 0, 0.905, 0.535, inclinacion);
+  // Ventanillas de las puertas delanteras
+  for (const lado of [-1, 1]) pieza(0.012, 0.25, 0.34, vidrioOscuro, lado * LADO, 0.88, 0.2);
+  // Ploteo en los dos costados de la caja de carga (cada uno mira hacia afuera y se lee derecho)
+  const plotMat = new THREE.MeshStandardMaterial({ map: texturaPloteo(), transparent: true, roughness: 0.35, envMapIntensity: 0.8, depthWrite: false });
+  for (const lado of [-1, 1]) {
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.325), plotMat);
+    p.position.set(lado * (LADO + 0.002), 0.62, -0.32);
+    p.rotation.y = lado * Math.PI / 2;
+    p.renderOrder = 3;
+    f.add(p);
+  }
+  // Puerta corrediza, puertas traseras y riel
+  for (const lado of [-1, 1]) {
+    pieza(0.006, 0.82, 0.008, plastico, lado * LADO, 0.6, 0.05);
+    pieza(0.006, 0.82, 0.008, plastico, lado * LADO, 0.6, -0.62);
+    pieza(0.008, 0.012, 0.7, plastico, lado * LADO, 1.0, -0.28);
+  }
+  pieza(0.008, 0.86, 0.006, plastico, 0, 0.62, -1.005);
+  // Paragolpes, guardabarros, parrilla y espejos
+  pieza(ANCHO + 0.06, 0.13, 0.1, plastico, 0, 0.24, 1.0);
+  pieza(ANCHO + 0.06, 0.13, 0.1, plastico, 0, 0.24, -1.02);
+  pieza(ANCHO + 0.02, 0.09, 1.9, plastico, 0, 0.21, 0);
+  pieza(ANCHO - 0.34, 0.08, 0.02, plastico, 0, 0.42, 1.0 + 0.012);
+  for (const lado of [-1, 1]) {
+    pieza(0.05, 0.11, 0.08, plastico, lado * (ANCHO / 2 + 0.1), 0.86, 0.48);
+    pieza(0.07, 0.02, 0.02, plastico, lado * (ANCHO / 2 + 0.05), 0.84, 0.5);
+  }
+  // Faros (se prenden de noche) y luces traseras
+  for (const lado of [-1, 1]) {
+    const faro = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff3d0, emissiveIntensity: 0.35, roughness: 0.1 });
+    lucesDelanteras.push(faro);
+    pieza(0.17, 0.07, 0.03, faro, lado * 0.29, 0.53, 0.985);
+    const trasera = new THREE.MeshStandardMaterial({ color: 0xb01515, emissive: 0xff2a2a, emissiveIntensity: 0.5, roughness: 0.3 });
+    lucesTraseras.push(trasera);
+    pieza(0.06, 0.28, 0.02, trasera, lado * 0.37, 0.6, -1.008);
+  }
+  // Ruedas con cubierta y llanta
+  const cubierta = mat(0x1a1d24, { roughness: 0.9 }), llanta = metal(0xaab2c0);
+  const ruedas = [];
+  for (const [x, z] of [[-0.42, 0.6], [0.42, 0.6], [-0.42, -0.62], [0.42, -0.62]]) {
+    const r = new THREE.Group(); r.position.set(x, 0.02, z);
+    const goma = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.13, 26), cubierta); goma.rotation.z = Math.PI / 2; r.add(goma);
+    const aro = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.095, 0.135, 18), llanta); aro.rotation.z = Math.PI / 2; r.add(aro);
+    const rayo = new THREE.Mesh(new THREE.BoxGeometry(0.136, 0.15, 0.03), llanta); r.add(rayo);
+    f.add(r); ruedas.push(r);
+  }
+  // Las ruedas giran según cuánto avanza
+  f.userData.girarRuedas = (avance) => { for (const r of ruedas) r.rotation.x += avance / 0.17; };
+  return f;
+}
+
 function crearCamioneta(anim) {
   const g = new THREE.Group();
   const LUGARES = { pendiente: -2.1, en_camino: 0, entregado: 2.1 };
@@ -536,24 +738,14 @@ function crearCamioneta(anim) {
     marco.rotation.x = -Math.PI / 2; marco.position.set(x, -0.13, 0.3); marco.computeLineDistances(); g.add(marco);
     const toque = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.05, 2.2), invisible()); toque.position.set(x, -0.12, 0.3); g.add(toque);
   }
-  function furgon() {
-    const f = new THREE.Group();
-    const cuerpo = caja(0.7, 0.62, 1.05, C.blanco); cuerpo.position.set(0, 0.42, -0.12); f.add(cuerpo);
-    const franja = caja(0.72, 0.12, 1.07, C.celeste, { emissive: C.neon, emissiveIntensity: 0.2 }); franja.position.set(0, 0.42, -0.12); f.add(franja);
-    const cabina = caja(0.68, 0.44, 0.4, C.blanco); cabina.position.set(0, 0.33, 0.6); f.add(cabina);
-    const vidrio = caja(0.56, 0.2, 0.02, C.grisOscuro); vidrio.position.set(0, 0.45, 0.81); f.add(vidrio);
-    for (const [x, z] of [[-0.35, -0.45], [0.35, -0.45], [-0.35, 0.55], [0.35, 0.55]]) {
-      const r = cilindro(0.14, 0.09, C.noche, 14); r.rotation.z = Math.PI / 2; r.position.set(x, 0.0, z); f.add(r);
-    }
-    f.rotation.y = Math.PI; // mira hacia la vidriera
-    g.add(f); return f;
-  }
-  const furgones = { pendiente: furgon(), entregado: furgon() };
+  const lucesDelanteras = [], lucesTraseras = [];
+  const furgones = { pendiente: furgonEnvios(lucesDelanteras, lucesTraseras), entregado: furgonEnvios(lucesDelanteras, lucesTraseras) };
+  for (const f of Object.values(furgones)) { f.rotation.y = Math.PI; g.add(f); } // la trompa mira a la vidriera
   marcar(g, 'camioneta');
   const visibles = { pendiente: false, entregado: false };
   for (const [estado, f] of Object.entries(furgones)) { f.position.set(LUGARES[estado], 0, 0.3); f.visible = false; }
   return {
-    id: 'camioneta', grupo: g, anclaY: 1.3, lugares: LUGARES, focoY: 0.3, zoomFoco: 1.9,
+    id: 'camioneta', grupo: g, anclaY: 1.6, lugares: LUGARES, focoY: 0.4, zoomFoco: 1.9,
     actualizar(m) {
       const cuenta = { pendiente: m.pedidos.pendientes, entregado: m.pedidos.entregados };
       for (const [estado, f] of Object.entries(furgones)) {
@@ -561,11 +753,16 @@ function crearCamioneta(anim) {
         if (ver && !visibles[estado]) {
           f.visible = true;
           // Entra desde la calle y se estaciona en el lugar de su estado: es un cambio de estado, no un recorrido real.
-          anim.ir({ desde: 2.8, hasta: 0.3, aplicar: (v) => { f.position.z = v; }, dur: 900 });
+          let previo = 2.8;
+          anim.ir({ desde: 2.8, hasta: 0.3, dur: 1100, aplicar: (v) => { f.position.z = v; f.userData.girarRuedas(previo - v); previo = v; } });
         }
         if (!ver) f.visible = false;
         visibles[estado] = ver;
       }
+    },
+    setNoche(v) {
+      for (const m of lucesDelanteras) m.emissiveIntensity = lerp(0.35, 3.0, v);
+      for (const m of lucesTraseras) m.emissiveIntensity = lerp(0.5, 2.2, v);
     },
   };
 }
@@ -751,13 +948,29 @@ export function crearEscena(contenedor, { rotulos, alSeleccionar, alPasar }) {
   const lienzo = document.createElement('canvas');
   lienzo.className = 'escena-lienzo';
   lienzo.setAttribute('aria-hidden', 'true');
-  const renderer = new THREE.WebGLRenderer({ canvas: lienzo, antialias: true, alpha: true });
+  const renderer = new THREE.WebGLRenderer({ canvas: lienzo, antialias: true, alpha: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  // Color tipo cine y sombras suaves
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.92;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   contenedor.prepend(lienzo);
 
   const escena = new THREE.Scene();
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x9aa6bd, 2.2); escena.add(hemi);
-  const sol = new THREE.DirectionalLight(0xffffff, 1.5); sol.position.set(6, 10, 5); escena.add(sol);
+  const entornos = crearEntornos(renderer);
+  escena.environment = entornos.dia;
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x8d98ad, 0.85); escena.add(hemi);
+  const sol = new THREE.DirectionalLight(0xfff6e8, 2.3);
+  // El sol viene de adelante a la izquierda: las sombras caen hacia la derecha, donde la cámara las ve.
+  sol.position.set(-5, 13, 8);
+  sol.castShadow = true;
+  // En el celular, sombras más livianas
+  const tamSombra = Math.min(window.innerWidth, window.innerHeight) < 720 ? 1024 : 2048;
+  sol.shadow.mapSize.set(tamSombra, tamSombra);
+  Object.assign(sol.shadow.camera, { left: -11, right: 11, top: 11, bottom: -11, near: 1, far: 40 });
+  sol.shadow.bias = -0.0005; sol.shadow.normalBias = 0.025; sol.shadow.radius = 3;
+  escena.add(sol); escena.add(sol.target);
 
   const anim = new Animador();
   const local = crearLocal(anim);
@@ -781,6 +994,20 @@ export function crearEscena(contenedor, { rotulos, alSeleccionar, alPasar }) {
   const rotuloDuenioDestino = document.createElement('span');
   rotuloDuenio.append(rotuloDuenioNombre, rotuloDuenioDestino);
   rotulos.appendChild(rotuloDuenio);
+
+  // Sombras: todo lo sólido proyecta y recibe. Lo transparente (vidrios, burbujas, carteles) no proyecta.
+  // Se vuelve a aplicar cuando los datos rearman el estante o los productos.
+  function aplicarSombras() {
+    escena.traverse((o) => {
+      if (!o.isMesh) return;
+      const transparente = o.material && (o.material.transparent || o.material.isMeshBasicMaterial);
+      o.castShadow = !transparente && !o.userData.sinSombraPropia;
+      o.receiveShadow = !o.material?.isMeshBasicMaterial;
+    });
+  }
+  aplicarSombras();
+  // Solo en la PC, para revisar la escena desde la consola del navegador
+  if (location.hostname === 'localhost') window.__maqueta = { escena, renderer, sol, camara: () => camara };
 
   // Rótulos HTML que siguen a cada objeto
   const elRotulos = new Map();
@@ -964,6 +1191,7 @@ export function crearEscena(contenedor, { rotulos, alSeleccionar, alPasar }) {
   const api = {
     actualizar(m, ref) {
       for (const o of objetos) o.actualizar(m, ref);
+      aplicarSombras();
       sucio = true;
     },
     seleccionar(id, productoId) {
@@ -1035,7 +1263,13 @@ export function crearEscena(contenedor, { rotulos, alSeleccionar, alPasar }) {
       const desde = noche, hasta = activa ? 1 : 0;
       anim.ir({
         desde, hasta, dur: 700,
-        aplicar: (val) => { noche = val; hemi.intensity = lerp(2.2, 0.45, val); sol.intensity = lerp(1.5, 0.15, val); local.setNoche(val); sucio = true; },
+        aplicar: (val) => {
+          noche = val;
+          hemi.intensity = lerp(0.85, 0.28, val); sol.intensity = lerp(2.3, 0.12, val);
+          escena.environment = val > 0.5 ? entornos.noche : entornos.dia;
+          local.setNoche(val); porId.get('camioneta').setNoche?.(val);
+          sucio = true;
+        },
       });
     },
     encender() { local.encender(); },
