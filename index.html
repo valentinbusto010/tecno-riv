@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Maqueta Tecno Riv</title>
+<meta name="description" content="Maqueta 3D del local de Tecno Riv con ventas, stock, pedidos, clientes y marketing.">
+<meta name="theme-color" content="#0e1630">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="./iconos/icono-32.png">
+<link rel="apple-touch-icon" href="./iconos/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Tecno Riv">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preload" href="./vendor/fuentes/archivo-black-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="./src/estilos.css">
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+</head>
+<body>
+<section class="candado" id="candado" aria-labelledby="candado-titulo" hidden>
+  <form class="candado-caja" id="candado-form" novalidate>
+    <img src="./iconos/icono-192.png" alt="" width="72" height="72">
+    <p class="eyebrow">Maqueta del local</p>
+    <h1 class="logo" id="candado-titulo">Tecno <span>Riv</span></h1>
+    <p class="sub">Los números del negocio están protegidos. Escribí la clave para abrirlos.</p>
+    <label for="candado-clave">Clave</label>
+    <input id="candado-clave" name="clave" type="password" autocomplete="current-password" required>
+    <label class="tilde"><input id="candado-recordar" type="checkbox" checked> Recordarla en este dispositivo</label>
+    <p class="error" id="candado-error" role="alert" hidden></p>
+    <button type="submit" class="btn primario" id="candado-abrir">Abrir</button>
+  </form>
+</section>
+<div class="wrap">
+  <header class="top">
+    <div class="marca">
+      <p class="eyebrow">Maqueta del local · Río Cuarto</p>
+      <h1 class="logo">Tecno <span>Riv</span></h1>
+    </div>
+    <div class="seg" role="group" aria-label="Período" id="periodos"></div>
+  </header>
+
+  <dl class="meta">
+    <div class="sello"><dt class="oculto">Tipo de datos</dt><dd>Copia fija · no es conexión en vivo</dd></div>
+    <div><dt>Período</dt><dd id="meta-periodo">—</dd></div>
+    <div><dt>Moneda</dt><dd id="meta-moneda">—</dd></div>
+    <div><dt>Datos cargados</dt><dd id="meta-carga">—</dd></div>
+    <div><dt>Fuente</dt><dd id="meta-fuente">—</dd></div>
+  </dl>
+  <p class="aviso" id="arranque">Cargando la maqueta… Si este mensaje no desaparece, abrila desde su dirección web, o en tu PC con <code>serve.ps1</code> (ver LEEME.md): con doble clic sobre el archivo el navegador no la deja cargar.</p>
+  <div class="aviso" id="avisos" hidden></div>
+
+  <main>
+    <section class="vista" id="vista-local" aria-label="Local">
+      <div class="kpis" id="kpis"></div>
+
+      <div class="escena" id="escena" aria-label="Maqueta 3D del local">
+        <div class="rotulos" id="rotulos"></div>
+        <div class="globo" id="globo" hidden aria-hidden="true"></div>
+        <div class="herramientas" id="controles-3d" role="group" aria-label="Vista 3D">
+          <button type="button" class="redondo" id="btn-girar-izq" aria-label="Girar a la izquierda" title="Girar a la izquierda"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4"/></svg></button>
+          <button type="button" class="redondo" id="btn-girar-der" aria-label="Girar a la derecha" title="Girar a la derecha"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4h-4"/></svg></button>
+          <button type="button" class="redondo" id="btn-acercar" aria-label="Acercar" title="Acercar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          <button type="button" class="redondo" id="btn-alejar" aria-label="Alejar" title="Alejar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+          <button type="button" class="redondo" id="btn-centrar" aria-label="Ver todo el local" title="Ver todo el local"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+          <button type="button" class="redondo" id="btn-noche" aria-pressed="false" aria-label="Modo noche" title="Modo noche"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg></button>
+          <button type="button" class="redondo" id="btn-movimiento" aria-pressed="false" aria-label="Pausar animaciones" title="Pausar animaciones"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5v14M15 5v14"/></svg></button>
+        </div>
+        <button type="button" class="recorrido" id="btn-recorrido"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z"/></svg>Recorrer el local</button>
+        <div class="sin-3d" id="sin-3d" hidden>
+          <p><strong>Este navegador no puede mostrar la maqueta 3D.</strong></p>
+          <p id="sin-3d-detalle">Los mismos datos están en la pestaña Lista.</p>
+        </div>
+        <p class="ayuda" id="ayuda">Tocá un objeto · Deslizá para girar</p>
+      </div>
+    </section>
+
+    <section class="vista" id="vista-lista" aria-labelledby="lista-titulo" hidden>
+      <div class="card">
+        <h2 id="lista-titulo">Los mismos datos, en lista</h2>
+        <p class="sub">Cada botón abre la misma tarjeta que el objeto de la maqueta.</p>
+        <ul class="lista-objetos" id="lista-objetos"></ul>
+      </div>
+      <div class="card">
+        <h2>Fichas de productos</h2>
+        <div id="lista-productos"></div>
+      </div>
+    </section>
+
+    <section class="vista" id="vista-datos" aria-labelledby="datos-titulo" hidden>
+      <div class="card">
+        <h2 id="datos-titulo">Qué datos usa esta maqueta</h2>
+        <ul class="puntos" id="omitido"></ul>
+      </div>
+      <div class="card">
+        <h2>Atajos de teclado</h2>
+        <ul class="puntos">
+          <li><kbd>←</kbd> <kbd>→</kbd> giran el local.</li>
+          <li><kbd>+</kbd> <kbd>−</kbd> acercan y alejan.</li>
+          <li><kbd>N</kbd> prende y apaga el modo noche.</li>
+          <li><kbd>Esc</kbd> cierra la tarjeta.</li>
+        </ul>
+        <p class="sub" id="enlace-pruebas">Las pruebas de los cálculos están en <a href="./pruebas.html">pruebas.html</a>.</p>
+      </div>
+      <div class="card" id="bloque-clave" hidden>
+        <h2>Clave</h2>
+        <p class="sub">Los datos de esta app están cifrados. Si la recordaste en este dispositivo, la podés borrar acá.</p>
+        <button type="button" class="btn" id="olvidar-clave">Olvidar la clave en este dispositivo</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<nav class="tabs" aria-label="Secciones">
+  <div class="in">
+    <button type="button" data-tab="local" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10l9-6 9 6v10H3zM9 20v-6h6v6"/></svg>Local</button>
+    <button type="button" data-tab="lista"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h1M3 12h1M3 18h1"/></svg>Lista</button>
+    <button type="button" data-tab="datos"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c5 0 8 1.3 8 3v12c0 1.7-3 3-8 3s-8-1.3-8-3V6c0-1.7 3-3 8-3zM4 6c0 1.7 3 3 8 3s8-1.3 8-3M4 12c0 1.7 3 3 8 3s8-1.3 8-3"/></svg>Datos</button>
+  </div>
+</nav>
+
+<aside class="tarjeta" id="tarjeta" role="dialog" aria-labelledby="tarjeta-titulo" hidden>
+  <div class="tarjeta-cabeza">
+    <span class="chip" id="tarjeta-estado"></span>
+    <span class="paso" id="tarjeta-paso" hidden></span>
+    <button type="button" class="cerrar" id="tarjeta-cerrar" aria-label="Cerrar tarjeta">×</button>
+  </div>
+  <h2 id="tarjeta-titulo" tabindex="-1"></h2>
+  <p class="representa" id="tarjeta-representa"></p>
+  <div id="tarjeta-cuerpo"></div>
+  <p class="pie" id="tarjeta-pie"></p>
+  <div class="recorrido-nav" id="recorrido-nav" hidden>
+    <button type="button" class="btn" id="tour-anterior">← Anterior</button>
+    <button type="button" class="btn primario" id="tour-siguiente">Siguiente →</button>
+  </div>
+</aside>
+
+<script type="module" src="./src/app.js"></script>
+</body>
+</html>
