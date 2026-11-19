@@ -34,6 +34,7 @@ const estado = {
   tour: null, filtroStock: null, tab: 'local',
   // modo: 'copia' (archivos locales), 'cifrado', 'vivo' o 'sin_conexion' (última copia guardada)
   modo: 'copia', guardado: null, vivo: null, ultimaCarga: 0, actualizando: false,
+  pendiente: null, // zona a la que vas caminando; su tarjeta se abre al llegar
 };
 
 const CLAVE_GUARDADA = 'tr-clave-v1';
@@ -405,17 +406,42 @@ function armarTarjeta() {
   $('#tour-siguiente').addEventListener('click', () => pasoTour(1));
 }
 
+// Elegir una zona: en la maqueta, primero caminás hasta ahí y al llegar se abren los datos.
+// Desde la pestaña Lista, sin 3D o con las animaciones en pausa, se abre al instante.
 function abrirTarjeta(id, productoId, origen, { desdeTour = false } = {}) {
   if (!desdeTour) estado.tour = null;
-  if (!estado.abierta) estado.foco = origen || document.activeElement;
+  if (!estado.abierta && !estado.pendiente) estado.foco = origen || document.activeElement;
   if (estado.abierta?.id === 'productos' && id !== 'productos') aplicarFiltroStock(null);
+  if (!estado.escena || estado.tab !== 'local') { mostrarTarjeta(id, productoId); return; }
+
+  // En el celular, la maqueta sube para que se vea la caminata.
+  if (esMovil()) $('#escena').scrollIntoView({ block: 'start', behavior: estado.movimiento ? 'smooth' : 'auto' });
+  // Si había otra zona abierta, su tarjeta se guarda mientras caminás.
+  if (estado.abierta && estado.abierta.id !== id) {
+    $('#tarjeta').hidden = true;
+    document.body.classList.remove('con-tarjeta');
+    estado.escena.deseleccionar();
+    estado.abierta = null;
+  }
+  const pedido = { id, productoId: productoId ?? null };
+  estado.pendiente = pedido;
+  const nombre = OBJETOS.find((o) => o.id === id)?.titulo || '';
+  estado.escena.irA(id, {
+    nombre,
+    alLlegar: () => {
+      if (estado.pendiente !== pedido) return; // elegiste otra zona en el camino
+      estado.pendiente = null;
+      mostrarTarjeta(id, productoId);
+    },
+  });
+}
+
+function mostrarTarjeta(id, productoId) {
   estado.abierta = { id, productoId };
   pintarTarjeta(id, productoId);
   $('#tarjeta').hidden = false;
   document.body.classList.add('con-tarjeta');
   if (estado.escena) {
-    // En el celular, la maqueta sube para quedar a la vista arriba de la hoja.
-    if (esMovil() && estado.tab === 'local') $('#escena').scrollIntoView({ block: 'start', behavior: estado.movimiento ? 'smooth' : 'auto' });
     estado.escena.seleccionar(id, productoId ?? undefined);
     // Esperar a que la escena se acomode al lado de la tarjeta antes de enfocar.
     requestAnimationFrame(() => estado.escena?.enfocar(id, { subir: esMovil() ? 0.42 : 0 }));
@@ -423,7 +449,14 @@ function abrirTarjeta(id, productoId, origen, { desdeTour = false } = {}) {
   $('#tarjeta-titulo').focus({ preventScroll: true });
 }
 
+function cancelarCaminata() {
+  if (!estado.pendiente) return;
+  estado.pendiente = null;
+  estado.escena?.detenerDuenio();
+}
+
 function cerrarTarjeta() {
+  cancelarCaminata();
   $('#tarjeta').hidden = true;
   document.body.classList.remove('con-tarjeta');
   aplicarFiltroStock(null);
@@ -568,7 +601,7 @@ function armarControles() {
   $('#btn-girar-der').addEventListener('click', () => e.girar(1));
   $('#btn-acercar').addEventListener('click', () => e.zoom(e.obtenerZoom() * 1.25));
   $('#btn-alejar').addEventListener('click', () => e.zoom(e.obtenerZoom() / 1.25));
-  $('#btn-centrar').addEventListener('click', () => { if (estado.abierta) cerrarTarjeta(); e.centrar(); });
+  $('#btn-centrar').addEventListener('click', () => { if (estado.abierta) cerrarTarjeta(); else cancelarCaminata(); e.centrar(); });
   const noche = $('#btn-noche');
   noche.setAttribute('aria-pressed', String(estado.noche));
   noche.addEventListener('click', alternarNoche);
@@ -593,6 +626,7 @@ function alternarNoche() {
 function armarTeclado() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && estado.abierta) { cerrarTarjeta(); return; }
+    if (e.key === 'Escape' && estado.pendiente) { cancelarCaminata(); return; }
     if (!estado.escena || estado.tab !== 'local' || e.altKey || e.ctrlKey || e.metaKey) return;
     if (e.target.closest && e.target.closest('input, select, textarea')) return;
     if (e.key === 'ArrowLeft') { estado.escena.girar(-1); e.preventDefault(); }

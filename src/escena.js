@@ -570,6 +570,181 @@ function crearCamioneta(anim) {
   };
 }
 
+// ---------- El dueño: camina hasta cada zona ----------
+
+// Dónde se para en cada zona y hacia dónde mira (x, z del piso).
+const PARADAS = {
+  caja: { p: [0.3, -0.35], mira: [0, -1] },        // frente al mostrador, mirando la caja
+  ganancia: { p: [2.7, -0.15], mira: [0, -1] },
+  productos: { p: [5.0, -4.4], mira: [0, -1] },
+  deposito: { p: [-4.05, -2.2], mira: [0, -1] },   // en la puerta del depósito
+  marketing: { p: [-5.9, -1.0], mira: [-1, 0] },
+  proveedores: { p: [-6.1, 1.9], mira: [-1, 0] },
+  clientes: { p: [-4.75, 0.55], mira: [0.6, 0.8] },
+  camioneta: { p: [4.0, 4.75], mira: [0, 1] },     // en la vereda, mirando a la calle
+};
+// Puntos de paso por los pasillos. Cada tramo se revisó contra el plano: no cruza muebles ni clientes.
+const PASOS = {
+  centro: [0.5, 0.7], puertaAdentro: [0, 3.2], puertaAfuera: [0, 4.65], izquierda: [-5.5, 0.0],
+  izqCaja: [-2.9, -0.3], pasillo: [1.5, -0.3], detrasCaja: [1.5, -2.6], este: [4.3, -0.3],
+};
+const TRAMOS = [
+  ['centro', 'puertaAdentro'], ['puertaAdentro', 'puertaAfuera'], ['puertaAfuera', 'camioneta'],
+  ['centro', 'izquierda'], ['izquierda', 'marketing'], ['izquierda', 'proveedores'], ['izquierda', 'clientes'],
+  ['centro', 'clientes'], ['izquierda', 'deposito'], ['centro', 'izqCaja'], ['izqCaja', 'deposito'], ['izqCaja', 'izquierda'],
+  ['centro', 'pasillo'], ['pasillo', 'detrasCaja'], ['centro', 'caja'], ['pasillo', 'caja'], ['centro', 'ganancia'], ['pasillo', 'ganancia'],
+  ['ganancia', 'este'], ['este', 'productos'], ['detrasCaja', 'productos'],
+];
+const NODOS = { ...PASOS, ...Object.fromEntries(Object.entries(PARADAS).map(([k, v]) => [k, v.p])) };
+const VECINOS = {};
+for (const [a, b] of TRAMOS) { (VECINOS[a] ||= []).push(b); (VECINOS[b] ||= []).push(a); }
+const distancia2 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+
+// Camino más corto entre dos puntos de paso (Dijkstra; son pocos nodos).
+function rutaEntre(desde, hasta) {
+  const dist = { [desde]: 0 }, previo = {}, pendientes = new Set(Object.keys(NODOS));
+  while (pendientes.size) {
+    let u = null;
+    for (const n of pendientes) if (dist[n] !== undefined && (u === null || dist[n] < dist[u])) u = n;
+    if (u === null || u === hasta) break;
+    pendientes.delete(u);
+    for (const w of VECINOS[u] || []) {
+      const d = dist[u] + distancia2(NODOS[u], NODOS[w]);
+      if (dist[w] === undefined || d < dist[w]) { dist[w] = d; previo[w] = u; }
+    }
+  }
+  const ruta = [hasta];
+  while (ruta[0] !== desde && previo[ruta[0]]) ruta.unshift(previo[ruta[0]]);
+  return ruta[0] === desde ? ruta : [desde, hasta];
+}
+
+function texturaLogoRemera() {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.font = '64px "Archivo Black", "Arial Black", sans-serif'; g.textBaseline = 'middle';
+  const wt = g.measureText('T').width, wr = g.measureText('R').width, x = (128 - wt - wr) / 2;
+  g.fillStyle = '#ffffff'; g.fillText('T', x, 60);
+  g.fillStyle = '#0e1630'; g.fillText('R', x + wt, 60);
+  g.fillStyle = '#ffffff'; g.fillRect(x, 98, wt + wr, 7);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+function crearDuenio(anim) {
+  const g = new THREE.Group();
+  const cuerpo = new THREE.Group(); g.add(cuerpo);
+  const PIEL = 0xe8c4a0, JEAN = 0x1f2f55, PELO = 0x2a1d14, CADERA = 0.62;
+  const pierna = (x) => {
+    const piv = new THREE.Group(); piv.position.set(x, CADERA, 0);
+    const p = caja(0.15, 0.56, 0.17, JEAN); p.position.y = -0.28; piv.add(p);
+    const zapa = caja(0.17, 0.08, 0.27, 0xf4f6fa); zapa.position.set(0, -0.58, 0.04); piv.add(zapa);
+    cuerpo.add(piv); return piv;
+  };
+  const brazo = (x) => {
+    const piv = new THREE.Group(); piv.position.set(x, CADERA + 0.48, 0);
+    const manga = caja(0.13, 0.2, 0.15, C.celeste); manga.position.y = -0.08; piv.add(manga);
+    const b = caja(0.1, 0.32, 0.11, PIEL); b.position.y = -0.33; piv.add(b);
+    cuerpo.add(piv); return piv;
+  };
+  const piernaI = pierna(-0.1), piernaD = pierna(0.1);
+  const torso = caja(0.44, 0.52, 0.26, C.celeste); torso.position.y = CADERA + 0.27; cuerpo.add(torso);
+  const logo = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.24), new THREE.MeshBasicMaterial({ map: texturaLogoRemera(), transparent: true, depthWrite: false }));
+  logo.position.set(0, CADERA + 0.33, 0.132); cuerpo.add(logo);
+  const brazoI = brazo(-0.295), brazoD = brazo(0.295);
+  const cuello = cilindro(0.06, 0.08, PIEL, 10); cuello.position.y = CADERA + 0.57; cuerpo.add(cuello);
+  const cabeza = new THREE.Mesh(new THREE.SphereGeometry(0.17, 18, 14), mat(PIEL)); cabeza.position.y = CADERA + 0.76; cuerpo.add(cabeza);
+  const pelo = new THREE.Mesh(new THREE.SphereGeometry(0.18, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.5), mat(PELO));
+  pelo.position.y = CADERA + 0.77; pelo.rotation.x = -0.3; cuerpo.add(pelo);
+  // Aro celeste en el piso: así se distingue de los clientes
+  const aroMat = new THREE.MeshBasicMaterial({ color: C.neon, transparent: true, opacity: 0.85, side: THREE.DoubleSide, toneMapped: false, depthWrite: false });
+  const aro = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.38, 36), aroMat); aro.rotation.x = -Math.PI / 2; aro.position.y = 0.025; g.add(aro);
+  g.renderOrder = 2;
+
+  // Arranca en el medio del local, mirando hacia la cámara
+  let ruta = null, paso = 0, velocidad = 3, fase = 0, rumbo = Math.PI / 4, alLlegar = null, destino = 'centro';
+  let parado = 'centro';
+  g.position.set(PASOS.centro[0], 0, PASOS.centro[1]);
+  g.rotation.y = rumbo;
+
+  const anguloCorto = (desde, hasta) => desde + Math.atan2(Math.sin(hasta - desde), Math.cos(hasta - desde));
+  function quieto() { piernaI.rotation.x = piernaD.rotation.x = 0; brazoI.rotation.x = brazoD.rotation.x = 0; cuerpo.position.y = 0; }
+
+  function llegar() {
+    ruta = null; parado = destino; quieto();
+    const m = PARADAS[destino].mira;
+    const final = anguloCorto(g.rotation.y, Math.atan2(m[0], m[1]));
+    anim.ir({ desde: g.rotation.y, hasta: final, aplicar: (a) => { g.rotation.y = a; }, dur: 260 });
+    // Señala la zona y después se abren los datos
+    anim.ir({ desde: 0, hasta: -1.25, aplicar: (a) => { brazoD.rotation.x = a; }, dur: 260, demora: 160 });
+    anim.ir({ desde: -1.25, hasta: 0, aplicar: (a) => { brazoD.rotation.x = a; }, dur: 380, demora: 1000 });
+    const cb = alLlegar; alLlegar = null;
+    if (cb) anim.ir({ desde: 0, hasta: 1, aplicar: (t) => { if (t >= 1) cb(); }, dur: 1, demora: 380 });
+  }
+
+  return {
+    grupo: g,
+    get destino() { return destino; },
+    get caminando() { return !!ruta; },
+    // Devuelve cuánto va a tardar (ms). Con el movimiento en pausa llega al instante.
+    irA(id, { reducido = false, cb } = {}) {
+      if (!PARADAS[id]) { cb?.(); return 0; }
+      destino = id;
+      alLlegar = cb || null;
+      const aqui = [g.position.x, g.position.z];
+      let nodos;
+      if (!ruta && parado && distancia2(aqui, NODOS[parado]) < 0.05) {
+        nodos = rutaEntre(parado, id);
+      } else {
+        // A mitad de camino: entra a la red por el punto de paso más cercano.
+        let cerca = null;
+        for (const n of Object.keys(NODOS)) if (cerca === null || distancia2(aqui, NODOS[n]) < distancia2(aqui, NODOS[cerca])) cerca = n;
+        nodos = rutaEntre(cerca, id);
+      }
+      const puntos = nodos.map((n) => NODOS[n]).filter((p, i) => i > 0 || distancia2(aqui, p) > 0.05);
+      let largo = 0, previo = aqui;
+      for (const p of puntos) { largo += distancia2(previo, p); previo = p; }
+      parado = null;
+      if (reducido || largo < 0.05) {
+        const [x, z] = PARADAS[id].p;
+        g.position.set(x, 0, z);
+        g.rotation.y = Math.atan2(PARADAS[id].mira[0], PARADAS[id].mira[1]);
+        ruta = null; parado = id; quieto();
+        const c = alLlegar; alLlegar = null;
+        if (c) requestAnimationFrame(() => c());
+        return 0;
+      }
+      ruta = puntos; paso = 0;
+      velocidad = Math.max(3, largo / 2.8); // nunca más de unos 3 segundos de caminata
+      return (largo / velocidad) * 1000;
+    },
+    terminar() { if (ruta) { const [x, z] = PARADAS[destino].p; g.position.set(x, 0, z); llegar(); } },
+    detener() { alLlegar = null; },
+    cuadro(dt) {
+      if (!ruta) return false;
+      let avance = velocidad * dt;
+      while (avance > 0 && ruta) {
+        const [tx, tz] = ruta[paso];
+        const dx = tx - g.position.x, dz = tz - g.position.z, d = Math.hypot(dx, dz);
+        if (d <= avance) {
+          g.position.x = tx; g.position.z = tz; avance -= d; paso++;
+          if (paso >= ruta.length) { llegar(); return true; }
+        } else {
+          g.position.x += (dx / d) * avance; g.position.z += (dz / d) * avance; avance = 0;
+          rumbo = Math.atan2(dx, dz);
+        }
+      }
+      // Gira suave hacia donde camina, mueve piernas y brazos
+      g.rotation.y = lerp(g.rotation.y, anguloCorto(g.rotation.y, rumbo), Math.min(1, dt * 12));
+      fase += dt * velocidad * 3.4;
+      const s = Math.sin(fase);
+      piernaI.rotation.x = s * 0.6; piernaD.rotation.x = -s * 0.6;
+      brazoI.rotation.x = -s * 0.5; brazoD.rotation.x = s * 0.5;
+      cuerpo.position.y = Math.abs(Math.cos(fase)) * 0.04;
+      return true;
+    },
+  };
+}
+
 // ---------- Escena ----------
 
 export function crearEscena(contenedor, { rotulos, alSeleccionar, alPasar }) {
@@ -596,6 +771,16 @@ export function crearEscena(contenedor, { rotulos, alSeleccionar, alPasar }) {
   ];
   const porId = new Map(objetos.map((o) => [o.id, o]));
   for (const o of objetos) { const [x, z] = POS[o.id]; o.grupo.position.set(x, 0, z); escena.add(o.grupo); }
+
+  // El dueño (vos) con su rótulo
+  const duenio = crearDuenio(anim);
+  escena.add(duenio.grupo);
+  const rotuloDuenio = document.createElement('span');
+  rotuloDuenio.className = 'rotulo-duenio'; rotuloDuenio.setAttribute('aria-hidden', 'true');
+  const rotuloDuenioNombre = document.createElement('b'); rotuloDuenioNombre.textContent = 'Vos';
+  const rotuloDuenioDestino = document.createElement('span');
+  rotuloDuenio.append(rotuloDuenioNombre, rotuloDuenioDestino);
+  rotulos.appendChild(rotuloDuenio);
 
   // Rótulos HTML que siguen a cada objeto
   const elRotulos = new Map();
@@ -654,8 +839,14 @@ export function crearEscena(contenedor, { rotulos, alSeleccionar, alPasar }) {
     // En pantallas angostas los botones van en una fila arriba: los rótulos no suben hasta ahí.
     const reservaArriba = w < 560 ? 50 : 0;
     // Si dos rótulos se pisan, el de más arriba sube hasta quedar libre. Ninguno sale de la escena.
+    // Tu rótulo ("Vos") va primero y no se mueve: los de las zonas lo esquivan.
     cajas.sort((a, b) => b.y - a.y);
     const puestos = [];
+    v.set(duenio.grupo.position.x, 1.72, duenio.grupo.position.z).project(camara);
+    const dx = ((v.x + 1) / 2) * w, dy = ((1 - v.y) / 2) * h;
+    rotuloDuenio.hidden = Math.abs(v.x) > 1.02 || Math.abs(v.y) > 1.02;
+    rotuloDuenio.style.transform = `translate(${dx}px, ${dy}px) translate(-50%, -100%)`;
+    if (!rotuloDuenio.hidden) puestos.push({ x: dx, y: dy, w: rotuloDuenio.offsetWidth, h: rotuloDuenio.offsetHeight });
     for (const c of cajas) {
       c.x = clamp(c.x, c.w / 2 + 4, w - c.w / 2 - 4);
       for (let intento = 0; intento < 8; intento++) {
@@ -676,12 +867,15 @@ export function crearEscena(contenedor, { rotulos, alSeleccionar, alPasar }) {
     }
   }
 
-  let raf = 0;
+  let raf = 0, ultimoCuadro = 0;
   function bucle(ahora) {
     raf = requestAnimationFrame(bucle);
+    const dt = ultimoCuadro ? Math.min(0.05, (ahora - ultimoCuadro) / 1000) : 0;
+    ultimoCuadro = ahora;
     const hayAnim = anim.paso(ahora);
     let hayBucles = false;
     if (movimiento) for (const o of objetos) if (o.cuadro && o.cuadro(ahora / 1000)) hayBucles = true;
+    if (duenio.cuadro(dt)) hayBucles = true;
     if (hayAnim || hayBucles || sucio) {
       renderer.render(escena, camara);
       posicionarRotulos();
@@ -796,6 +990,29 @@ export function crearEscena(contenedor, { rotulos, alSeleccionar, alPasar }) {
       moverCamara(destino, z);
     },
     vistaGeneral() { moverCamara(CENTRO_GENERAL.clone(), zoomGeneral); },
+    // Tu personaje camina hasta la zona; cuando llega, llama a alLlegar. La cámara lo acompaña.
+    irA(id, { nombre = '', alLlegar } = {}) {
+      rotuloDuenioDestino.textContent = nombre ? ` → ${nombre}` : '';
+      rotuloDuenio.classList.add('caminando');
+      const terminar = () => {
+        rotuloDuenioDestino.textContent = '';
+        rotuloDuenio.classList.remove('caminando');
+        alLlegar?.();
+      };
+      const ms = duenio.irA(id, { reducido: anim.reducido || !movimiento, cb: terminar });
+      if (ms > 0) {
+        const o = porId.get(id);
+        const destino = new THREE.Vector3(o.grupo.position.x, o.focoY ?? 1, o.grupo.position.z);
+        // A mitad de camino entre donde estás y la zona, para que se vea la caminata.
+        destino.x = (destino.x + duenio.grupo.position.x) / 2;
+        destino.z = (destino.z + duenio.grupo.position.z) / 2;
+        moverCamara(destino, Math.max(zoomGeneral, 1.25), Math.max(600, ms * 0.8));
+      }
+      sucio = true;
+      return ms;
+    },
+    detenerDuenio() { duenio.detener(); rotuloDuenioDestino.textContent = ''; rotuloDuenio.classList.remove('caminando'); },
+    get duenioCaminando() { return duenio.caminando; },
     girar(dir) {
       const desde = yaw; yawDestino += (dir * Math.PI) / 2;
       anim.ir({ desde, hasta: yawDestino, aplicar: (a) => { yaw = a; ubicarCamara(); }, dur: 550 });
@@ -824,7 +1041,7 @@ export function crearEscena(contenedor, { rotulos, alSeleccionar, alPasar }) {
     encender() { local.encender(); },
     setMovimiento(activo) {
       movimiento = activo; anim.reducido = !activo;
-      if (!activo) anim.terminar();
+      if (!activo) { duenio.terminar(); anim.terminar(); }
       sucio = true;
     },
     destruir() { cancelAnimationFrame(raf); observador.disconnect(); renderer.dispose(); lienzo.remove(); },

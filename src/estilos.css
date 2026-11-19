@@ -120,6 +120,13 @@ a { color: var(--acento); }
 .rotulo[data-estado="no_disponible"] { border-style: dashed; color: var(--apagado); }
 .rotulo.activo { border-color: var(--acento); box-shadow: 0 0 0 2px var(--acento), 0 0 18px rgb(30 182 255 / 0.5); }
 .rotulo:hover { border-color: var(--acento); }
+/* Rótulo de tu personaje: siempre celeste, para encontrarte rápido */
+.rotulo-duenio {
+  position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none; white-space: nowrap;
+  background: #0a8fd6; color: #ffffff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px;
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.85), 0 0 14px rgb(30 182 255 / 0.6);
+}
+.rotulo-duenio b { font-weight: 800; letter-spacing: 0.03em; }
 /* Van sobre el piso o la calle de la maqueta, que tienen colores fijos. */
 .subrotulo {
   position: absolute; left: 0; top: 0; font-size: 11px; font-weight: 700; color: #0e1630; background: rgb(255 255 255 / 0.9);
