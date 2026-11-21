@@ -1,7 +1,10 @@
 // Service worker de la app: guarda una copia de la app para poder abrirla sin internet.
 // Siempre intenta primero la red (para tener lo último) y si no hay conexión usa la copia.
 // Los datos en vivo vienen de Supabase (otro dominio): no pasan por acá.
-const VERSION = 'tecnoriv-20261119-194537'; // armar-app.ps1 lo reemplaza por la fecha de cada publicación
+const VERSION = 'tecnoriv-20261121-201756'; // armar-app.ps1 lo reemplaza por la fecha de cada publicación
+// Varias apps pueden compartir la misma dirección (por ejemplo usuario.github.io/app1 y /app2) y el navegador les da
+// un solo lugar para las copias: cada app borra solo sus copias viejas, nunca las de otra.
+const PREFIJO = VERSION.replace(/-(desarrollo|\d{8}-\d{6})$/, '-');
 const ARCHIVOS = [
   './', './index.html', './manifest.webmanifest',
   './src/app.js', './src/calculos.js', './src/cifrado.js', './src/config.js', './src/datos.js',
@@ -17,7 +20,7 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((claves) => Promise.all(claves.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
+      .then((claves) => Promise.all(claves.filter((k) => k !== VERSION && k.startsWith(PREFIJO)).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
